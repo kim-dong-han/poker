@@ -1,5 +1,6 @@
 package com.homepoker.web;
 
+import com.homepoker.rule.RuleViolation;
 import com.homepoker.table.TableService;
 import com.homepoker.web.dto.ActionRequest;
 import com.homepoker.web.dto.JoinRequest;
@@ -48,8 +49,12 @@ public class TableController {
         broadcast(id);
     }
 
-    /** 액션이 규칙 위반이면(예: 차례 아님, 최소 레이즈 미만) 요청자에게만 에러를 돌려준다. */
-    @MessageExceptionHandler({IllegalStateException.class, IllegalArgumentException.class})
+    /**
+     * 규칙 위반(차례 아님·최소 레이즈 미만 등 게임 규칙, 또는 바이인·쿨다운 등 RuleGuard 정책)은
+     * 요청자에게만 사유를 돌려준다.
+     */
+    @MessageExceptionHandler({
+            IllegalStateException.class, IllegalArgumentException.class, RuleViolation.class})
     @SendToUser("/queue/errors")
     public String handleError(RuntimeException ex) {
         return ex.getMessage();

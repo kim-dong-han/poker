@@ -5,6 +5,7 @@ import com.homepoker.engine.game.ActionType;
 import com.homepoker.engine.game.HandEngine;
 import com.homepoker.engine.game.Player;
 import com.homepoker.engine.game.PlayerStatus;
+import com.homepoker.rule.RuleGuard;
 import com.homepoker.web.dto.PotView;
 import com.homepoker.web.dto.SeatView;
 import com.homepoker.web.dto.TableStateView;
@@ -27,12 +28,19 @@ public class TableService {
     private static final long DEFAULT_BB = 20;
 
     private final Map<String, Table> tables = new ConcurrentHashMap<>();
+    private final RuleGuard ruleGuard;
+
+    public TableService(RuleGuard ruleGuard) {
+        this.ruleGuard = ruleGuard;
+    }
 
     public Table getOrCreate(String tableId) {
         return tables.computeIfAbsent(tableId, id -> new Table(id, DEFAULT_SB, DEFAULT_BB));
     }
 
+    /** 착석. RuleGuard 가 최소/최대 바이인과 버스트 재입장 쿨다운을 먼저 강제한다. */
     public void join(String tableId, String playerId, String name, long buyIn) {
+        ruleGuard.checkJoin(playerId, buyIn);
         getOrCreate(tableId).seat(playerId, name, buyIn);
     }
 
@@ -41,7 +49,23 @@ public class TableService {
     }
 
     public void applyAction(String tableId, String playerId, String type, long amount) {
-        getOrCreate(tableId).applyAction(playerId, type, amount);
+        Table table = getOrCreate(tableId);
+        table.applyAction(playerId, type, amount);
+        settleBustsIfHandComplete(table);
+    }
+
+    /** 핸드가 끝났고 스택이 0인 플레이어는 버스트로 기록하고 자리를 비운다(재입장 쿨다운 시작). */
+    private void settleBustsIfHandComplete(Table table) {
+        var engine = table.engine();
+        if (engine == null || !engine.isComplete()) {
+            return;
+        }
+        for (var p : engine.players()) {
+            if (p.stack() == 0 && table.isSeated(p.id())) {
+                ruleGuard.recordBust(p.id());
+                table.removeSeat(p.id());
+            }
+        }
     }
 
     public List<String> seatedPlayerIds(String tableId) {

@@ -1,8 +1,12 @@
 package com.homepoker.table;
 
+import com.homepoker.rule.BuyInPolicy;
+import com.homepoker.rule.RuleGuard;
 import com.homepoker.web.dto.SeatView;
 import com.homepoker.web.dto.TableStateView;
 import org.junit.jupiter.api.Test;
+
+import java.time.Clock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -12,6 +16,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TableServiceTest {
 
+    private static TableService newService() {
+        return new TableService(new RuleGuard(BuyInPolicy.defaults(), Clock.systemDefaultZone()));
+    }
+
     private static SeatView seat(TableStateView view, String playerId) {
         return view.seats().stream()
                 .filter(s -> s.playerId().equals(playerId))
@@ -19,7 +27,7 @@ class TableServiceTest {
     }
 
     private TableService twoPlayerTableMidHand() {
-        TableService service = new TableService();
+        TableService service = newService();
         service.join("t1", "alice", "Alice", 1000);
         service.join("t1", "bob", "Bob", 1000);
         service.startHand("t1");
@@ -28,7 +36,7 @@ class TableServiceTest {
 
     @Test
     void lobbyViewBeforeHand() {
-        TableService service = new TableService();
+        TableService service = newService();
         service.join("t1", "alice", "Alice", 1000);
         TableStateView view = service.viewFor("t1", "alice");
         assertFalse(view.handInProgress());

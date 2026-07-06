@@ -50,10 +50,22 @@ public class Table {
 
     public synchronized void seat(String playerId, String name, long buyIn) {
         if (seats.containsKey(playerId)) {
-            // 이미 앉아 있으면 재바이인은 RuleGuard(3단계)에서 다룬다. 지금은 무시.
-            return;
+            return; // 이미 착석 중이면 무시(추가 칩은 리로드 경로로)
         }
         seats.put(playerId, new Player(playerId, name, buyIn));
+    }
+
+    /** 좌석에서 제거(파산 후 자리 비움 등). */
+    public synchronized void removeSeat(String playerId) {
+        seats.remove(playerId);
+    }
+
+    public synchronized boolean isSeated(String playerId) {
+        return seats.containsKey(playerId);
+    }
+
+    public synchronized Player player(String playerId) {
+        return seats.get(playerId);
     }
 
     /** 새 핸드 시작. 칩이 있는 좌석이 2명 이상이어야 한다. */
