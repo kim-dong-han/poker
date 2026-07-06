@@ -20,6 +20,8 @@ public record TableStateView(
         Set<String> viewerLegalActions,
         long viewerToCall,
         long viewerMinRaiseTo,
-        Map<String, Long> payouts
+        Map<String, Long> payouts,
+        /** 보는 사람 본인의 몬테카를로 이퀴티(0~1). 계산 대상이 아니면 null. 상대 것은 절대 담기지 않는다. */
+        Double viewerEquity
 ) {
 }

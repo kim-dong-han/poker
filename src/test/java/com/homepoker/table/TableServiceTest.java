@@ -1,5 +1,6 @@
 package com.homepoker.table;
 
+import com.homepoker.equity.EquityService;
 import com.homepoker.rule.BuyInPolicy;
 import com.homepoker.rule.RuleGuard;
 import com.homepoker.web.dto.SeatView;
@@ -17,7 +18,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class TableServiceTest {
 
     private static TableService newService() {
-        return new TableService(new RuleGuard(BuyInPolicy.defaults(), Clock.systemDefaultZone()));
+        return new TableService(
+                new RuleGuard(BuyInPolicy.defaults(), Clock.systemDefaultZone()),
+                new EquityService());
     }
 
     private static SeatView seat(TableStateView view, String playerId) {

@@ -5,6 +5,8 @@ import com.homepoker.engine.game.ActionType;
 import com.homepoker.engine.game.HandEngine;
 import com.homepoker.engine.game.Player;
 import com.homepoker.engine.game.PlayerStatus;
+import com.homepoker.equity.Equity;
+import com.homepoker.equity.EquityService;
 import com.homepoker.rule.RuleGuard;
 import com.homepoker.web.dto.PotView;
 import com.homepoker.web.dto.SeatView;
@@ -27,11 +29,15 @@ public class TableService {
     private static final long DEFAULT_SB = 10;
     private static final long DEFAULT_BB = 20;
 
+    private static final int LIVE_EQUITY_ITERATIONS = 1500;
+
     private final Map<String, Table> tables = new ConcurrentHashMap<>();
     private final RuleGuard ruleGuard;
+    private final EquityService equityService;
 
-    public TableService(RuleGuard ruleGuard) {
+    public TableService(RuleGuard ruleGuard, EquityService equityService) {
         this.ruleGuard = ruleGuard;
+        this.equityService = equityService;
     }
 
     public Table getOrCreate(String tableId) {
@@ -86,7 +92,7 @@ public class TableService {
                             0, null, false, false))
                     .toList();
             return new TableStateView(tableId, false, "WAITING", List.of(), 0,
-                    List.of(), seats, null, Set.of(), 0, 0, Map.of());
+                    List.of(), seats, null, Set.of(), 0, 0, Map.of(), null);
         }
 
         boolean revealAll = engine.isComplete() && engine.wentToShowdown();
@@ -105,6 +111,7 @@ public class TableService {
                 .collect(Collectors.toSet());
 
         long toCall = isSeated(engine, viewerId) ? engine.amountToCall(viewerId) : 0;
+        Double viewerEquity = computeViewerEquity(engine, viewerId);
 
         return new TableStateView(
                 tableId,
@@ -118,7 +125,33 @@ public class TableService {
                 legal,
                 toCall,
                 engine.minRaiseTo(),
-                engine.payouts());
+                engine.payouts(),
+                viewerEquity);
+    }
+
+    /**
+     * 진행 중인 핸드에서 폴드하지 않은 관찰자에게 "본인 이퀴티만" 계산한다.
+     * 상대 홀카드는 미지로 두고 몬테카를로로 추정하므로 상대 정보가 유출되지 않는다.
+     */
+    private Double computeViewerEquity(HandEngine engine, String viewerId) {
+        if (engine.isComplete()) {
+            return null;
+        }
+        Player hero = engine.players().stream()
+                .filter(p -> p.id().equals(viewerId))
+                .findFirst().orElse(null);
+        if (hero == null || hero.status() == PlayerStatus.FOLDED || hero.holeCards().size() != 2) {
+            return null;
+        }
+        int opponents = (int) engine.players().stream()
+                .filter(p -> !p.id().equals(viewerId) && p.status() != PlayerStatus.FOLDED)
+                .count();
+        if (opponents < 1) {
+            return null;
+        }
+        Equity equity = equityService.estimate(hero.holeCards(), engine.board(),
+                opponents, LIVE_EQUITY_ITERATIONS, new java.util.Random());
+        return equity.equity();
     }
 
     private SeatView toSeatView(HandEngine engine, Player p, String viewerId,

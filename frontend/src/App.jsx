@@ -111,6 +111,11 @@ export default function App() {
                 : state.board.map((c, i) => <Card key={i} code={c} />)}
             </div>
             <div className="pot">팟 {state.pot}</div>
+            {state.viewerEquity != null && (
+              <div className="equity" title="내 홀카드 기준 몬테카를로 승률">
+                내 이퀴티 {Math.round(state.viewerEquity * 100)}%
+              </div>
+            )}
           </div>
 
           <div className="seats">

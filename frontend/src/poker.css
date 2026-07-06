@@ -37,6 +37,8 @@ header button { margin-left: auto; }
 .street { letter-spacing: 2px; opacity: .8; margin-bottom: 8px; }
 .board { display: flex; gap: 8px; justify-content: center; min-height: 64px; align-items: center; }
 .pot { margin-top: 10px; font-weight: 700; color: var(--gold); }
+.equity { margin-top: 6px; display: inline-block; background: #0b3; color: #04220f;
+  font-weight: 800; padding: 3px 12px; border-radius: 999px; font-size: 14px; }
 
 .seats { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 20px 0; }
 .seat {
