@@ -3,6 +3,7 @@ package com.homepoker.table;
 import com.homepoker.equity.EquityService;
 import com.homepoker.rule.BuyInPolicy;
 import com.homepoker.rule.RuleGuard;
+import com.homepoker.stats.StatsService;
 import com.homepoker.web.dto.SeatView;
 import com.homepoker.web.dto.TableStateView;
 import org.junit.jupiter.api.Test;
@@ -20,7 +21,8 @@ class TableServiceTest {
     private static TableService newService() {
         return new TableService(
                 new RuleGuard(BuyInPolicy.defaults(), Clock.systemDefaultZone()),
-                new EquityService());
+                new EquityService(),
+                new StatsService());
     }
 
     private static SeatView seat(TableStateView view, String playerId) {
@@ -99,6 +101,32 @@ class TableServiceTest {
 
         long totalStacks = end.seats().stream().mapToLong(SeatView::stack).sum();
         assertEquals(2000L, totalStacks);
+    }
+
+    @Test
+    void recordsZeroSumStatsAfterHand() {
+        StatsService stats = new StatsService();
+        TableService service = new TableService(
+                new RuleGuard(BuyInPolicy.defaults(), Clock.systemDefaultZone()),
+                new EquityService(), stats);
+        service.join("t1", "alice", "Alice", 1000);
+        service.join("t1", "bob", "Bob", 1000);
+        service.startHand("t1");
+
+        int guard = 0;
+        while (service.viewFor("t1", "alice").handInProgress()) {
+            if (guard++ > 100) {
+                throw new AssertionError("핸드가 끝나지 않음");
+            }
+            String actor = service.viewFor("t1", "alice").currentActorId();
+            var legal = service.viewFor("t1", actor).viewerLegalActions();
+            service.applyAction("t1", actor, legal.contains("CHECK") ? "CHECK" : "CALL", 0);
+        }
+
+        var board = stats.leaderboard();
+        assertEquals(2, board.size());
+        assertEquals(2, board.stream().mapToInt(r -> r.handsPlayed()).sum()); // 각자 1핸드
+        assertEquals(0L, board.stream().mapToLong(r -> r.netProfit()).sum()); // 제로섬
     }
 
     @Test

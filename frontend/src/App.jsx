@@ -69,6 +69,40 @@ function ActionBar({ state, act }) {
   );
 }
 
+function Leaderboard() {
+  const [rows, setRows] = useState([]);
+  React.useEffect(() => {
+    const load = () => fetch('/api/leaderboard').then((r) => r.json()).then(setRows).catch(() => {});
+    load();
+    const t = setInterval(load, 4000);
+    return () => clearInterval(t);
+  }, []);
+  if (rows.length === 0) return null;
+  return (
+    <div className="leaderboard">
+      <b>ROI 리더보드</b>
+      <table>
+        <thead>
+          <tr><th>#</th><th>플레이어</th><th>net</th><th>핸드</th><th>승</th><th>VPIP</th><th>PFR</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={r.playerId}>
+              <td>{i + 1}</td>
+              <td>{r.name || r.playerId}</td>
+              <td className={r.netProfit >= 0 ? 'pos' : 'neg'}>{r.netProfit >= 0 ? '+' : ''}{r.netProfit}</td>
+              <td>{r.handsPlayed}</td>
+              <td>{r.handsWon}</td>
+              <td>{r.vpip}%</td>
+              <td>{r.pfr}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Login({ onLogin }) {
   const [id, setId] = useState('');
   const [name, setName] = useState('');
@@ -131,6 +165,8 @@ export default function App() {
               <b>결과</b> {Object.entries(state.payouts).map(([id, amt]) => `${id}: +${amt}`).join(' · ')}
             </div>
           )}
+
+          <Leaderboard />
         </main>
       )}
     </div>

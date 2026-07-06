@@ -5,14 +5,19 @@ import com.homepoker.engine.game.ActionType;
 import com.homepoker.engine.game.HandEngine;
 import com.homepoker.engine.game.Player;
 import com.homepoker.engine.game.PlayerStatus;
+import com.homepoker.engine.game.Street;
 import com.homepoker.equity.Equity;
 import com.homepoker.equity.EquityService;
 import com.homepoker.rule.RuleGuard;
+import com.homepoker.stats.HandReport;
+import com.homepoker.stats.StatsService;
 import com.homepoker.web.dto.PotView;
 import com.homepoker.web.dto.SeatView;
 import com.homepoker.web.dto.TableStateView;
 import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,12 +37,15 @@ public class TableService {
     private static final int LIVE_EQUITY_ITERATIONS = 1500;
 
     private final Map<String, Table> tables = new ConcurrentHashMap<>();
+    private final Map<String, HandAccumulator> accumulators = new ConcurrentHashMap<>();
     private final RuleGuard ruleGuard;
     private final EquityService equityService;
+    private final StatsService statsService;
 
-    public TableService(RuleGuard ruleGuard, EquityService equityService) {
+    public TableService(RuleGuard ruleGuard, EquityService equityService, StatsService statsService) {
         this.ruleGuard = ruleGuard;
         this.equityService = equityService;
+        this.statsService = statsService;
     }
 
     public Table getOrCreate(String tableId) {
@@ -51,13 +59,62 @@ public class TableService {
     }
 
     public void startHand(String tableId) {
-        getOrCreate(tableId).startHand();
+        Table table = getOrCreate(tableId);
+        // 블라인드가 빠지기 전(핸드 시작 전) 스택을 캡처해야 순손익에 블라인드가 반영된다.
+        Map<String, Long> preHandStacks = new HashMap<>();
+        for (Player p : table.seatedPlayers()) {
+            preHandStacks.put(p.id(), p.stack());
+        }
+        table.startHand();
+        accumulators.put(tableId, HandAccumulator.forHand(table.engine(), preHandStacks));
     }
 
     public void applyAction(String tableId, String playerId, String type, long amount) {
         Table table = getOrCreate(tableId);
+        Street streetBefore = table.engine() == null ? null : table.engine().street();
         table.applyAction(playerId, type, amount);
+
+        recordPreflopTendency(tableId, playerId, type, streetBefore);
+        finalizeStatsIfHandComplete(tableId, table);
         settleBustsIfHandComplete(table);
+    }
+
+    /** 프리플랍 액션이면 VPIP/PFR 성향을 이번 핸드 누적기에 기록. */
+    private void recordPreflopTendency(String tableId, String playerId, String type, Street streetBefore) {
+        HandAccumulator acc = accumulators.get(tableId);
+        if (acc == null || streetBefore != Street.PREFLOP) {
+            return;
+        }
+        ActionType at = ActionType.valueOf(type.toUpperCase());
+        if (at == ActionType.CALL || at == ActionType.BET || at == ActionType.RAISE) {
+            acc.voluntaryPreflop.add(playerId); // 블라인드 체크/폴드는 자발적 투자가 아님
+        }
+        if (at == ActionType.RAISE) {
+            acc.preflopRaisers.add(playerId);
+        }
+    }
+
+    /** 핸드 종료 시 순손익·승자를 계산해 StatsService 에 리포트. */
+    private void finalizeStatsIfHandComplete(String tableId, Table table) {
+        HandEngine engine = table.engine();
+        HandAccumulator acc = accumulators.get(tableId);
+        if (engine == null || !engine.isComplete() || acc == null) {
+            return;
+        }
+        Map<String, Long> netDelta = new HashMap<>();
+        Set<String> winners = new HashSet<>();
+        for (Player p : engine.players()) {
+            long start = acc.startStacks.getOrDefault(p.id(), p.stack());
+            netDelta.put(p.id(), p.stack() - start);
+        }
+        engine.payouts().forEach((id, amt) -> {
+            if (amt > 0) {
+                winners.add(id);
+            }
+        });
+        statsService.record(new HandReport(
+                acc.names, acc.dealt, acc.voluntaryPreflop, acc.preflopRaisers, netDelta, winners));
+        accumulators.remove(tableId);
     }
 
     /** 핸드가 끝났고 스택이 0인 플레이어는 버스트로 기록하고 자리를 비운다(재입장 쿨다운 시작). */
@@ -168,5 +225,24 @@ public class TableService {
 
     private boolean isSeated(HandEngine engine, String playerId) {
         return engine.players().stream().anyMatch(p -> p.id().equals(playerId));
+    }
+
+    /** 한 핸드 동안 통계 집계에 필요한 정보를 모으는 누적기(핸드 종료 시 HandReport 로 변환). */
+    private static final class HandAccumulator {
+        final Map<String, String> names = new HashMap<>();
+        final Map<String, Long> startStacks = new HashMap<>();
+        final Set<String> dealt = new HashSet<>();
+        final Set<String> voluntaryPreflop = new HashSet<>();
+        final Set<String> preflopRaisers = new HashSet<>();
+
+        static HandAccumulator forHand(HandEngine engine, Map<String, Long> preHandStacks) {
+            HandAccumulator acc = new HandAccumulator();
+            for (Player p : engine.players()) {
+                acc.names.put(p.id(), p.name());
+                acc.startStacks.put(p.id(), preHandStacks.getOrDefault(p.id(), p.stack()));
+                acc.dealt.add(p.id());
+            }
+            return acc;
+        }
     }
 }
