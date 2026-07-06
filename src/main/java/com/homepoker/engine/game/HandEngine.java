@@ -49,6 +49,7 @@ public class HandEngine {
 
     private final Map<String, Long> payouts = new LinkedHashMap<>();
     private List<Pot> pots = List.of();
+    private boolean showdown = false; // 쇼다운까지 갔는가(폴드 무혈입성이면 false)
 
     public HandEngine(List<Player> players, int button, long smallBlind, long bigBlind, Deck deck) {
         this.players = List.copyOf(players);
@@ -334,6 +335,7 @@ public class HandEngine {
     private void goToShowdown() {
         street = Street.SHOWDOWN;
         actingIndex = -1;
+        showdown = true;
 
         Map<String, Long> contributions = new LinkedHashMap<>();
         Set<String> folded = new HashSet<>();
@@ -492,6 +494,20 @@ public class HandEngine {
 
     public long currentBet() {
         return currentBet;
+    }
+
+    /** 이번 스트리트에 해당 플레이어가 이미 넣은 칩(UI 벳 표시용). */
+    public long committedThisStreet(String playerId) {
+        return committedThisStreet[indexOf(playerId)];
+    }
+
+    /** 쇼다운까지 갔는가(true 여야 폴드 안 한 플레이어 카드를 공개해도 된다). */
+    public boolean wentToShowdown() {
+        return showdown;
+    }
+
+    public int buttonSeat() {
+        return button;
     }
 
     public List<Player> players() {
