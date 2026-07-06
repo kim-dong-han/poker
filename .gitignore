@@ -1,6 +1,11 @@
 HELP.md
 .gradle
 build/
+
+### 프론트엔드 빌드 산출물 (생성물: cd frontend && npm run build) ###
+src/main/resources/static/assets/
+src/main/resources/static/index.html
+node_modules/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
