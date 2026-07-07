@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { usePokerSocket } from './usePokerSocket.js';
+import { usePokerTable } from './usePokerTable.js';
 
 const SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
 
@@ -115,33 +115,67 @@ function Leaderboard() {
   );
 }
 
-function Login({ onLogin }) {
+function PlayerAdder({ onAdd, seatedIds, compact }) {
   const [id, setId] = useState('');
   const [name, setName] = useState('');
+  const submit = () => {
+    const pid = id.trim();
+    if (!pid || seatedIds.includes(pid)) return;
+    onAdd(pid, name.trim());
+    setId('');
+    setName('');
+  };
+  const onEnter = (e) => e.key === 'Enter' && submit();
   return (
-    <div className="login">
-      <h1>홈포커 테이블 t1</h1>
-      <p>여러 브라우저 탭에서 서로 다른 ID로 접속하면 2~6인 홀덤을 할 수 있어요.</p>
-      <input placeholder="플레이어 ID (예: alice)" value={id} onChange={(e) => setId(e.target.value)} />
-      <input placeholder="표시 이름" value={name} onChange={(e) => setName(e.target.value)} />
-      <button disabled={!id} onClick={() => onLogin(id.trim(), name.trim())}>착석</button>
+    <div className={compact ? 'add-inline' : 'login'}>
+      {!compact && (
+        <>
+          <h1>홈포커 테이블 t1 · 로컬 테스트</h1>
+          <p>혼자서 여러 명을 앉혀 진행할 수 있어요. 플레이어를 추가하세요(2명 이상이면 핸드 시작 가능).</p>
+        </>
+      )}
+      <input placeholder="플레이어 ID (예: alice)" value={id}
+        onChange={(e) => setId(e.target.value)} onKeyDown={onEnter} />
+      <input placeholder="표시 이름(선택)" value={name}
+        onChange={(e) => setName(e.target.value)} onKeyDown={onEnter} />
+      <button disabled={!id.trim()} onClick={submit}>착석</button>
     </div>
   );
 }
 
 export default function App() {
-  const [creds, setCreds] = useState(null);
-  const { connected, state, error, startHand, act } = usePokerSocket(creds?.id, creds?.name);
+  const { players, views, errors, connected, addPlayer, removePlayer, startHand, act } = usePokerTable();
 
-  if (!creds) return <Login onLogin={(id, name) => setCreds({ id, name })} />;
+  const seatedIds = players.map((p) => p.id);
+  const primary = players[0];              // Part 1: 뷰는 대표(첫) 플레이어 기준
+  const state = primary ? views[primary.id] : null;
+  const error = primary ? errors[primary.id] : null;
+
+  if (players.length === 0) {
+    return <PlayerAdder onAdd={addPlayer} seatedIds={seatedIds} />;
+  }
 
   return (
     <div className="app">
       <header>
-        <span className={`dot ${connected ? 'on' : 'off'}`} />
-        <span>{creds.id} · 테이블 t1</span>
-        <button className="ghost" onClick={startHand}>새 핸드 시작</button>
+        <span className={`dot ${connected[primary.id] ? 'on' : 'off'}`} />
+        <span>테이블 t1 · 로컬 테스트</span>
+        <button className="ghost" onClick={() => startHand(primary.id)}>새 핸드 시작</button>
       </header>
+
+      <div className="players-panel">
+        <div className="players-head"><b>참가자 {players.length}명</b></div>
+        <div className="player-chips">
+          {players.map((p) => (
+            <span key={p.id} className="pchip">
+              <span className={`dot ${connected[p.id] ? 'on' : 'off'}`} />
+              {p.name}
+              <button className="x" title="퇴장" onClick={() => removePlayer(p.id)}>×</button>
+            </span>
+          ))}
+        </div>
+        <PlayerAdder onAdd={addPlayer} seatedIds={seatedIds} compact />
+      </div>
 
       {error && <div className="error">⚠ {error}</div>}
 
@@ -172,11 +206,13 @@ export default function App() {
 
           <div className="seats">
             {state.seats.map((s) => (
-              <Seat key={s.playerId} seat={s} isViewer={s.playerId === creds.id} />
+              <Seat key={s.playerId} seat={s} isViewer={s.playerId === primary.id} />
             ))}
           </div>
 
-          {state.handInProgress && <ActionBar state={state} act={act} />}
+          {state.handInProgress && (
+            <ActionBar state={state} act={(type, amount) => act(primary.id, type, amount)} />
+          )}
 
           {!state.handInProgress && Object.keys(state.payouts || {}).length > 0 && (
             <div className="result">
