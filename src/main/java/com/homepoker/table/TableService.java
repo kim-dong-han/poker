@@ -200,13 +200,26 @@ public class TableService {
     private static final String SPECTATOR = "__spectator__";
 
     public TableStateView spectate(String tableId) {
-        return viewFor(tableId, SPECTATOR);
+        return viewFor(tableId, SPECTATOR, false);
+    }
+
+    /**
+     * 전지적 관찰자 뷰: 폴드 포함 모든 좌석의 홀카드를 공개한다.
+     * 로컬 홈게임의 관찰·학습용(예: 내가 폴드한 뒤 남은 판을 훈수 시점으로 보기) —
+     * 착석자 개인 뷰(viewFor)와 달리 리댁션을 걸지 않으므로 실서비스에선 노출 범위를 제한할 것.
+     */
+    public TableStateView godView(String tableId) {
+        return viewFor(tableId, SPECTATOR, true);
     }
 
     /**
      * viewerId 관점의 테이블 상태. 상대 홀카드는 담기지 않는다(쇼다운 공개 대상만 예외).
      */
     public TableStateView viewFor(String tableId, String viewerId) {
+        return viewFor(tableId, viewerId, false);
+    }
+
+    private TableStateView viewFor(String tableId, String viewerId, boolean godEye) {
         Table table = getOrCreate(tableId);
         HandEngine engine = table.engine();
 
@@ -224,7 +237,7 @@ public class TableService {
         String currentActorId = engine.playerToAct() == null ? null : engine.playerToAct().id();
 
         List<SeatView> seats = engine.players().stream()
-                .map(p -> toSeatView(engine, p, viewerId, revealAll, currentActorId))
+                .map(p -> toSeatView(engine, p, viewerId, revealAll, currentActorId, godEye))
                 .toList();
 
         List<PotView> pots = engine.pots().stream()
@@ -281,9 +294,9 @@ public class TableService {
     }
 
     private SeatView toSeatView(HandEngine engine, Player p, String viewerId,
-                                boolean revealAll, String currentActorId) {
+                                boolean revealAll, String currentActorId, boolean godEye) {
         boolean isViewer = p.id().equals(viewerId);
-        boolean reveal = isViewer || (revealAll && p.status() != PlayerStatus.FOLDED);
+        boolean reveal = godEye || isViewer || (revealAll && p.status() != PlayerStatus.FOLDED);
         List<String> hole = reveal ? p.holeCards().stream().map(Card::toString).toList() : null;
         boolean isButton = engine.players().indexOf(p) == engine.buttonSeat();
         return new SeatView(

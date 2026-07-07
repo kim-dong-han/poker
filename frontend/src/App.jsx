@@ -55,21 +55,23 @@ function TimerRing({ actorId, seconds, total = 30 }) {
 }
 
 /* ------------------------------------------------------------------ 좌석(테이블 둘레에 배치) */
-function Seat({ seat, isViewer, pos, secondsLeft, actorId, isWinner }) {
-  const hidden = !seat.holeCards;
+function Seat({ seat, isViewer, pos, secondsLeft, actorId, isWinner, spied }) {
   const cards = seat.holeCards
     ? seat.holeCards.map((c, i) => <Card key={i} code={c} flip delay={i * 90} />)
     : (seat.status !== 'FOLDED' ? [<Card key="a" faceDown />, <Card key="b" faceDown />] : null);
+  const isBot = seat.playerId.startsWith('ai-');
   return (
-    <div className={`seat ${seat.currentActor ? 'acting' : ''} ${seat.status === 'FOLDED' ? 'folded' : ''} ${isWinner ? 'winner' : ''}`}
+    <div className={`seat ${seat.currentActor ? 'acting' : ''} ${seat.status === 'FOLDED' ? 'folded' : ''} ${isWinner ? 'winner' : ''} ${spied ? 'spied' : ''}`}
       style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
       {seat.currentActor && actorId && (
         <div className="seat-timer"><TimerRing actorId={actorId} seconds={secondsLeft} /></div>
       )}
+      {spied && <div className="spy-tag" title="전지적 관찰자 시점으로 공개된 카드">👁</div>}
       <div className="seat-cards">{cards}</div>
       <div className="seat-plate">
         <div className="seat-name">
           {seat.button && <span className="dealer">D</span>}
+          {isBot && <span title="AI 상대">🤖</span>}
           {seat.name}{isViewer ? ' (나)' : ''}
         </div>
         <div className="seat-stack"><span className="chip-ico" />{seat.stack}</div>
@@ -383,6 +385,8 @@ export default function App() {
   const [saved, setSaved] = useState(loadSaved);
   const [showReplay, setShowReplay] = useState(false);
   const [commitment, setCommitment] = useState(null);
+  const [godMode, setGodMode] = useState(false);
+  const [godSeats, setGodSeats] = useState(null); // playerId -> holeCards (전지적 뷰)
 
   // 착석 시 저장 목록에 추가(중복 제거).
   const addAndSave = (id, name) => {
@@ -411,6 +415,24 @@ export default function App() {
       .then((f) => setCommitment(f.currentCommitment)).catch(() => {});
   }, [inProgress]);
 
+  // 전지적 관찰자 시점: 내가 플레이 중이 아닐 때(폴드/미착석/핸드 종료)만 버튼으로 켠다.
+  const mySeat = state?.seats?.find((s) => s.playerId === activeId);
+  const canGodView = !!state && (!inProgress || !mySeat || mySeat.status === 'FOLDED');
+  useEffect(() => {
+    if (!godMode || !canGodView) { setGodSeats(null); return undefined; }
+    let live = true;
+    const load = () => fetch('/api/tables/t1/godview').then((r) => r.json())
+      .then((v) => { if (live) setGodSeats(Object.fromEntries(v.seats.map((s) => [s.playerId, s.holeCards]))); })
+      .catch(() => {});
+    load();
+    const t = setInterval(load, 1200); // 남은 판의 진행(새 카드 딜)을 따라간다
+    return () => { live = false; clearInterval(t); };
+  }, [godMode, canGodView, state?.street, state?.currentActorId]);
+
+  const addBot = () => fetch('/api/tables/t1/bots', { method: 'POST' }).catch(() => {});
+  const removeBot = () => fetch('/api/tables/t1/bots', { method: 'DELETE' }).catch(() => {});
+  const hasBots = state?.seats?.some((s) => s.playerId.startsWith('ai-'));
+
   if (players.length === 0) {
     return <PlayerAdder onAdd={addAndSave} seatedIds={seatedIds} saved={saved} onForget={forget} />;
   }
@@ -430,6 +452,12 @@ export default function App() {
         <span className={`dot ${connected[activeId] ? 'on' : 'off'}`} />
         <span className="whoami"><b>{activeId}</b>(으)로 플레이 중</span>
         <span className="hbtns">
+          {canGodView && (
+            <button className={`ghost ${godMode ? 'god-on' : ''}`} onClick={() => setGodMode((v) => !v)}
+              title="내가 플레이 중이 아닐 때, 남은 판을 전지적 시점으로 관찰">
+              {godMode ? '👁 패 숨기기' : '👁 상대 패 보기'}
+            </button>
+          )}
           <button className="ghost" onClick={() => setShowReplay((v) => !v)}>
             {showReplay ? '복기 닫기' : '핸드 복기'}
           </button>
@@ -457,6 +485,14 @@ export default function App() {
           ))}
         </div>
         <PlayerAdder onAdd={addAndSave} seatedIds={seatedIds} saved={saved} onForget={forget} compact />
+        <div className="bot-controls">
+          <button className="ghost sm" onClick={addBot}
+            title="서버가 알아서 플레이하는 AI 상대를 앉힙니다(이퀴티 vs 팟오즈 기반)">🤖 AI 상대 추가</button>
+          {hasBots && !inProgress && (
+            <button className="ghost sm" onClick={removeBot}>AI 제거</button>
+          )}
+          {hasBots && <span className="muted sm-note">AI 는 자기 차례에 자동으로 액션합니다</span>}
+        </div>
       </div>
 
       {error && <div className="error">⚠ {error}</div>}
@@ -489,12 +525,17 @@ export default function App() {
                   )}
                 </div>
 
-                {ordered.map((s, i) => (
-                  <Seat key={s.playerId} seat={s} pos={positions[i]}
-                    isViewer={s.playerId === activeId}
-                    secondsLeft={state.turnSecondsLeft} actorId={actorId}
-                    isWinner={done && payouts[s.playerId] > 0} />
-                ))}
+                {ordered.map((s, i) => {
+                  // 전지적 시점이 켜져 있으면 리댁션된 좌석에 서버 godview 의 홀카드를 덧입힌다
+                  const spied = godMode && !s.holeCards && !!godSeats?.[s.playerId];
+                  const seat = spied ? { ...s, holeCards: godSeats[s.playerId] } : s;
+                  return (
+                    <Seat key={s.playerId} seat={seat} pos={positions[i]}
+                      isViewer={s.playerId === activeId} spied={spied}
+                      secondsLeft={state.turnSecondsLeft} actorId={actorId}
+                      isWinner={done && payouts[s.playerId] > 0} />
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -504,8 +545,11 @@ export default function App() {
               ? <ActionBar state={state} act={(type, amount) => act(activeId, type, amount)} />
               : <div className="turn-hint">
                   <TimerRing actorId={actorId} seconds={state.turnSecondsLeft} />
-                  지금은 <b>{actorId}</b> 차례
-                  {actorId && <button className="ghost sm" onClick={() => setPicked(actorId)}>{actorId}(으)로 전환 →</button>}
+                  {actorId?.startsWith('ai-')
+                    ? <>🤖 <b>{actorId}</b> (AI)가 생각 중…</>
+                    : <>지금은 <b>{actorId}</b> 차례
+                        {actorId && <button className="ghost sm" onClick={() => setPicked(actorId)}>{actorId}(으)로 전환 →</button>}
+                      </>}
                 </div>
           )}
 

@@ -23,4 +23,13 @@ public class SpectatorController {
     public TableStateView spectate(@PathVariable String id) {
         return tableService.spectate(id);
     }
+
+    /**
+     * 전지적 관찰자 뷰 — 폴드 포함 모든 홀카드 공개(버튼 눌러 명시적으로 볼 때만 호출).
+     * 로컬 홈게임 관찰·학습용 기능이라 별도 인증 없음(실서비스 전환 시 제한 필요).
+     */
+    @GetMapping("/api/tables/{id}/godview")
+    public TableStateView godView(@PathVariable String id) {
+        return tableService.godView(id);
+    }
 }

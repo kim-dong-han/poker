@@ -7,7 +7,6 @@ import com.homepoker.web.dto.JoinRequest;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.stereotype.Controller;
 
@@ -24,11 +23,11 @@ import java.security.Principal;
 public class TableController {
 
     private final TableService tableService;
-    private final SimpMessagingTemplate messaging;
+    private final ViewBroadcaster broadcaster;
 
-    public TableController(TableService tableService, SimpMessagingTemplate messaging) {
+    public TableController(TableService tableService, ViewBroadcaster broadcaster) {
         this.tableService = tableService;
-        this.messaging = messaging;
+        this.broadcaster = broadcaster;
     }
 
     @MessageMapping("/table/{id}/join")
@@ -60,13 +59,7 @@ public class TableController {
         return ex.getMessage();
     }
 
-    /** 착석한 모든 플레이어에게 각자의 리댁션 뷰를 전송. */
     private void broadcast(String tableId) {
-        for (String playerId : tableService.seatedPlayerIds(tableId)) {
-            messaging.convertAndSendToUser(
-                    playerId,
-                    "/queue/table." + tableId,
-                    tableService.viewFor(tableId, playerId));
-        }
+        broadcaster.broadcast(tableId);
     }
 }

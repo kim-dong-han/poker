@@ -40,8 +40,13 @@
 - [x] 검증 가능한 셔플(commit-reveal) — `fairness` 패키지(`CommittedShuffle`), 딜 전 SHA-256 커밋 공개 →
       종료 후 솔트+덱 리빌. `GET /api/tables/{id}/fairness`, 테이블 커밋 배지 + 복기 패널에서
       브라우저(crypto.subtle) 해시 재계산 검증. 진행 중 핸드의 덱은 절대 리빌하지 않음
+- [x] AI 상대 — `bot` 패키지(`BotBrain`: 이퀴티 vs 팟오즈 판단 = 복기와 동일 철학, `BotService`+스위퍼).
+      `POST/DELETE /api/tables/{id}/bots`, 봇 차례 자동 액션(생각 지연 `poker.bot.think-ms`, 기본 900ms),
+      프론트 "🤖 AI 상대 추가" 버튼. 사람 혼자 + AI 로 실전 연습 가능
+- [x] 전지적 관찰자 시점 — `GET /api/tables/{id}/godview`(폴드 포함 전 홀카드 공개).
+      내가 플레이 중이 아닐 때(폴드/미착석/핸드 종료)만 "👁 상대 패 보기" 버튼 노출, 명시적 토글로만 공개
 
-> 현재 전체 92개 단위·통합 테스트 통과. 배포 준비물(Docker/prod/DEPLOY.md) 완비.
+> 현재 전체 99개 단위·통합 테스트 통과. 배포 준비물(Docker/prod/DEPLOY.md) 완비.
 
 ---
 
