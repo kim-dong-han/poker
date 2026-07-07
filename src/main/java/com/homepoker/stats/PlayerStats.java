@@ -65,4 +65,21 @@ public class PlayerStats {
     public double pfr() {
         return handsPlayed == 0 ? 0 : (double) pfrHands / handsPlayed;
     }
+
+    // --- 영속화(스냅샷) ---
+
+    PlayerStatsSnapshot toSnapshot() {
+        return new PlayerStatsSnapshot(playerId, name, handsPlayed, vpipHands, pfrHands, handsWon, netProfit);
+    }
+
+    static PlayerStats fromSnapshot(PlayerStatsSnapshot s) {
+        PlayerStats ps = new PlayerStats(s.playerId());
+        ps.name = s.name();
+        ps.handsPlayed = s.handsPlayed();
+        ps.vpipHands = s.vpipHands();
+        ps.pfrHands = s.pfrHands();
+        ps.handsWon = s.handsWon();
+        ps.netProfit = s.netProfit();
+        return ps;
+    }
 }

@@ -102,7 +102,10 @@ PREFLOP → FLOP → TURN → RIVER → SHOWDOWN → COMPLETE
 
 ## 데이터 & 상태
 
-- **인메모리**. 영속 DB 없음(포트폴리오 범위). 통계·핸드리포트는 프로세스 수명 동안만 유지.
+- **주로 인메모리**. 영속 DB 없음(포트폴리오 범위). 테이블·핸드 상태는 프로세스 수명 동안만 유지.
+- **통계는 파일 영속화**: `StatsService`가 `StatsStore` 포트로 위임 →
+  `JsonFileStatsStore`가 매 핸드 후 JSON 스냅샷 저장(원자적 temp→move), 기동 시 복원.
+  DB 대신 파일을 택한 이유: 보존 대상이 플레이어별 소수 카운터뿐이고 Lightsail 2GB 저사양 배려.
 - **이벤트 소싱**: `HandEngine`이 초기 조건(좌석·버튼·블라인드·덱 순서)+적용 액션을 `HandLog`로 기록.
   `HandLog.stateAt(k)`가 순수 엔진을 다시 돌려 임의 시점 상태를 결정적으로 복원 → 핸드 리플레이.
   `Table`이 완료 핸드를 최근 50개까지 보관.
