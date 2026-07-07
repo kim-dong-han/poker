@@ -11,9 +11,12 @@
 
 ## ⏭️ 다음 (Next — 우선순위 순)
 
-- (없음 — Next 로드맵 전부 완료. 아래 백로그에서 승격)
+- [ ] **핸드 자동 복기(EV 손실 기반 실수 감지)** — 차기 핵심 차별화 기능, 상세 스펙 [HAND_REVIEW.md](HAND_REVIEW.md)
+      배치: `review` 패키지  |  완료기준: 판정 단위테스트 + 리플레이 UI 실수 마커  |  참고: HAND_REVIEW.md
 
 ## 💡 아이디어 (Backlog — 확정 안 됨)
+
+- [ ] 검증 가능한 셔플(commit-reveal) — 조작 불가 증명. HAND_REVIEW.md 차점 항목 참조
 
 - [x] 프리플랍 레인지 오버레이 — 정적 JSON(6-max 100bb RFI), `GET /api/preflop-range`, 히어로 핸드 오픈 판정
 - [x] 3인 이상 테이블 UI — 좌석 동적 렌더(flex-wrap)로 2~6인 지원, 타임뱅크 카운트다운 표시
