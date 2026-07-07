@@ -38,6 +38,18 @@ function Seat({ seat, isViewer }) {
   );
 }
 
+function Countdown({ actorId, seconds }) {
+  // 서버가 준 남은 초에서 시작해 로컬로 1초씩 깎는다. 액션자나 값이 바뀌면 리셋.
+  const [left, setLeft] = useState(seconds);
+  React.useEffect(() => {
+    setLeft(seconds);
+    const t = setInterval(() => setLeft((s) => (s > 0 ? s - 1 : 0)), 1000);
+    return () => clearInterval(t);
+  }, [actorId, seconds]);
+  if (seconds == null || seconds <= 0) return null;
+  return <span className={`turn-timer ${left <= 5 ? 'urgent' : ''}`}>⏱ {left}s</span>;
+}
+
 function ActionBar({ state, act }) {
   const legal = new Set(state.viewerLegalActions || []);
   const [amount, setAmount] = useState('');
@@ -109,7 +121,7 @@ function Login({ onLogin }) {
   return (
     <div className="login">
       <h1>홈포커 테이블 t1</h1>
-      <p>두 개의 브라우저 탭에서 서로 다른 ID로 접속해 2인 홀덤을 해보세요.</p>
+      <p>여러 브라우저 탭에서 서로 다른 ID로 접속하면 2~6인 홀덤을 할 수 있어요.</p>
       <input placeholder="플레이어 ID (예: alice)" value={id} onChange={(e) => setId(e.target.value)} />
       <input placeholder="표시 이름" value={name} onChange={(e) => setName(e.target.value)} />
       <button disabled={!id} onClick={() => onLogin(id.trim(), name.trim())}>착석</button>
@@ -145,6 +157,12 @@ export default function App() {
                 : state.board.map((c, i) => <Card key={i} code={c} />)}
             </div>
             <div className="pot">팟 {state.pot}</div>
+            {state.handInProgress && state.currentActorId && (
+              <div className="turn-line">
+                차례: <b>{state.currentActorId}</b>
+                <Countdown actorId={state.currentActorId} seconds={state.turnSecondsLeft} />
+              </div>
+            )}
             {state.viewerEquity != null && (
               <div className="equity" title="내 홀카드 기준 몬테카를로 승률">
                 내 이퀴티 {Math.round(state.viewerEquity * 100)}%

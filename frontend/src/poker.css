@@ -39,6 +39,13 @@ header button { margin-left: auto; }
 .pot { margin-top: 10px; font-weight: 700; color: var(--gold); }
 .equity { margin-top: 6px; display: inline-block; background: #0b3; color: #04220f;
   font-weight: 800; padding: 3px 12px; border-radius: 999px; font-size: 14px; }
+.turn-line { margin-top: 8px; font-size: 14px; opacity: .9; display: flex; gap: 8px;
+  justify-content: center; align-items: center; }
+.turn-timer { background: #0e2a1c; border: 1px solid var(--gold); color: var(--gold);
+  border-radius: 999px; padding: 1px 10px; font-weight: 700; }
+.turn-timer.urgent { background: #7a1f1f; border-color: #e35757; color: #ffd7d7;
+  animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .5; } }
 
 .seats { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 20px 0; }
 .seat {

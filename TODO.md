@@ -16,7 +16,7 @@
 ## 💡 아이디어 (Backlog — 확정 안 됨)
 
 - [x] 프리플랍 레인지 오버레이 — 정적 JSON(6-max 100bb RFI), `GET /api/preflop-range`, 히어로 핸드 오픈 판정
-- [ ] 3인 이상 테이블 UI (엔진은 이미 n인 지원, 프론트만 2인용)
+- [x] 3인 이상 테이블 UI — 좌석 동적 렌더(flex-wrap)로 2~6인 지원, 타임뱅크 카운트다운 표시
 - [x] 관전 모드 — `GET /api/tables/{id}/spectate`, 착석 없이 구경(홀카드 전부 숨김)
 - [ ] 배포: AWS Lightsail(2GB) — 몬테카를로 연산량 상한 조정 필요
 
