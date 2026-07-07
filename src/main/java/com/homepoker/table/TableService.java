@@ -11,11 +11,13 @@ import com.homepoker.equity.EquityService;
 import com.homepoker.rule.RuleGuard;
 import com.homepoker.stats.HandReport;
 import com.homepoker.stats.StatsService;
+import com.homepoker.web.dto.LobbyRow;
 import com.homepoker.web.dto.PotView;
 import com.homepoker.web.dto.SeatView;
 import com.homepoker.web.dto.TableStateView;
 import org.springframework.stereotype.Service;
 
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -50,6 +52,16 @@ public class TableService {
 
     public Table getOrCreate(String tableId) {
         return tables.computeIfAbsent(tableId, id -> new Table(id, DEFAULT_SB, DEFAULT_BB));
+    }
+
+    /** 로비: 현재 존재하는 모든 테이블의 공개 요약(테이블 id 오름차순). */
+    public List<LobbyRow> lobby() {
+        return tables.values().stream()
+                .sorted(Comparator.comparing(Table::id))
+                .map(t -> new LobbyRow(
+                        t.id(), t.smallBlind(), t.bigBlind(),
+                        t.seatedCount(), t.handInProgress(), t.handsPlayed()))
+                .toList();
     }
 
     /** 착석. RuleGuard 가 최소/최대 바이인과 버스트 재입장 쿨다운을 먼저 강제한다. */

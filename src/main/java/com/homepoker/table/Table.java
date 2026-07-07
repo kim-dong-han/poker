@@ -131,6 +131,20 @@ public class Table {
         return new ArrayList<>(history);
     }
 
+    /** 진행 중인 핸드가 있는가(로비 표시용). */
+    public synchronized boolean handInProgress() {
+        return engine != null && !engine.isComplete();
+    }
+
+    /** 지금까지 시작한 총 핸드 수. */
+    public synchronized int handsPlayed() {
+        return handCount;
+    }
+
+    public synchronized int seatedCount() {
+        return seats.size();
+    }
+
     public synchronized List<Player> seatedPlayers() {
         return new ArrayList<>(seats.values());
     }
