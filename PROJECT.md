@@ -64,6 +64,7 @@
 | [TODO.md](TODO.md) | 작업 목록 관리 |
 | [POKER_PLAN.md](POKER_PLAN.md) | 원본 기획·의사결정 로그 |
 | [README.md](README.md) | 실행·테스트 가이드 |
+| [DEPLOY.md](DEPLOY.md) | AWS Lightsail 배포(Docker/systemd) 가이드 |
 
 ## 개발 환경
 

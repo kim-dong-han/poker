@@ -71,3 +71,8 @@ cd ..
 9. ✅ **관전 모드**(`/spectate`) + **프리플랍 레인지 오버레이**(6-max RFI, `/api/preflop-range`)
 
 전체 74개 단위·통합 테스트 통과. 로드맵 완료 — 다음 후보는 [TODO.md](TODO.md) 백로그 참고.
+
+## 배포
+
+프론트+백을 한 jar로 묶어 배포한다. `docker build -t homepoker . && docker run -p 8080:8080 homepoker`
+또는 bare jar + systemd. 저사양(Lightsail 2GB) 튜닝과 단계별 절차는 [DEPLOY.md](DEPLOY.md) 참고.

@@ -15,6 +15,7 @@ import com.homepoker.web.dto.LobbyRow;
 import com.homepoker.web.dto.PotView;
 import com.homepoker.web.dto.SeatView;
 import com.homepoker.web.dto.TableStateView;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
@@ -36,7 +37,12 @@ public class TableService {
     private static final long DEFAULT_SB = 10;
     private static final long DEFAULT_BB = 20;
 
-    private static final int LIVE_EQUITY_ITERATIONS = 1500;
+    /**
+     * 라이브 이퀴티 오버레이의 몬테카를로 반복 횟수. 저사양 배포(Lightsail 1 vCPU)에서는
+     * poker.equity.live-iterations 로 낮춰 CPU 부하를 조절한다(기본 1500).
+     */
+    @Value("${poker.equity.live-iterations:1500}")
+    private int liveEquityIterations = 1500;
 
     private final Map<String, Table> tables = new ConcurrentHashMap<>();
     private final Map<String, HandAccumulator> accumulators = new ConcurrentHashMap<>();
@@ -270,7 +276,7 @@ public class TableService {
             return null;
         }
         Equity equity = equityService.estimate(hero.holeCards(), engine.board(),
-                opponents, LIVE_EQUITY_ITERATIONS, new java.util.Random());
+                opponents, liveEquityIterations, new java.util.Random());
         return equity.equity();
     }
 
