@@ -11,8 +11,7 @@
 
 ## ⏭️ 다음 (Next — 우선순위 순)
 
-- [ ] **핸드 자동 복기(EV 손실 기반 실수 감지)** — 차기 핵심 차별화 기능, 상세 스펙 [HAND_REVIEW.md](HAND_REVIEW.md)
-      배치: `review` 패키지  |  완료기준: 판정 단위테스트 + 리플레이 UI 실수 마커  |  참고: HAND_REVIEW.md
+- [ ] <비어 있음 — 백로그에서 승격하거나 새 항목 추가>
 
 ## 💡 아이디어 (Backlog — 확정 안 됨)
 
@@ -37,8 +36,11 @@
 - [x] 멀티 테이블 / 로비 — `GET /api/tables`로 활성 테이블 목록(좌석수·진행상태)
 - [x] 타임뱅크 — 액션 30초 제한, 초과 시 자동 체크/폴드(`TurnTimer`+스케줄러), 뷰에 남은 초 노출
 - [x] 통계 영속화 — JSON 파일 스냅샷(`StatsStore`/`JsonFileStatsStore`), 재시작 후 리더보드 복원
+- [x] 핸드 자동 복기(EV 손실 기반 실수 감지) — `review` 패키지(`HandReviewer`), 이퀴티 vs 팟오즈로
+      콜/폴드 지점 EV 손실 수치화 + 핸드당 최대 실수 1개. `GET /api/tables/{id}/hands/{index}/review`,
+      세션 누적 `GET /api/tables/{id}/review/session`, 프론트 복기 패널(리플레이 되감기 + 실수 마커)
 
-> 현재 전체 74개 단위·통합 테스트 통과. 배포 준비물(Docker/prod/DEPLOY.md) 완비.
+> 현재 전체 84개 단위·통합 테스트 통과. 배포 준비물(Docker/prod/DEPLOY.md) 완비.
 
 ---
 

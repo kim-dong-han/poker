@@ -161,6 +161,143 @@ function Leaderboard() {
   );
 }
 
+/* ------------------------------------------------------------------ 핸드 복기(리플레이 + EV 손실 실수 마커) */
+const pct = (x) => Math.round(x * 100);
+
+function translateMistakeType(t) {
+  const [street, action] = t.split(' ');
+  return `${translateStreet(street)} ${action === 'CALL' ? '오버콜' : '오버폴드'}`;
+}
+
+function ReplayPanel({ onClose }) {
+  const [hands, setHands] = useState([]);
+  const [sel, setSel] = useState(null);
+  const [frames, setFrames] = useState([]);
+  const [review, setReview] = useState(null);
+  const [session, setSession] = useState([]);
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    fetch('/api/tables/t1/hands').then((r) => r.json()).then(setHands).catch(() => {});
+    fetch('/api/tables/t1/review/session').then((r) => r.json()).then(setSession).catch(() => {});
+  }, []);
+
+  const open = (i) => {
+    setSel(i); setStep(0); setFrames([]); setReview(null);
+    fetch(`/api/tables/t1/hands/${i}`).then((r) => r.json()).then(setFrames).catch(() => {});
+    fetch(`/api/tables/t1/hands/${i}/review`).then((r) => r.json()).then(setReview).catch(() => {});
+  };
+
+  const frame = frames[step];
+  // 액션 인덱스 d.step 의 결과가 반영된 프레임은 step+1 → 그 프레임에 실수 마커를 찍는다.
+  const mistakeAt = {};
+  (review?.decisions || []).forEach((d) => { if (d.mistake) mistakeAt[d.step + 1] = d; });
+  const worst = review?.worstMistake;
+  const curMistake = mistakeAt[step];
+
+  return (
+    <div className="replay-panel">
+      <div className="replay-head">
+        <b>핸드 복기</b>
+        <span className="muted">이퀴티 vs 팟오즈로 EV 손실 실수 자동 감지</span>
+        <button className="ghost sm" onClick={onClose}>닫기 ×</button>
+      </div>
+
+      <div className="replay-hands">
+        {hands.length === 0 && <span className="muted">완료된 핸드가 없습니다. 한 판 끝내고 다시 열어보세요.</span>}
+        {/* API 는 최신 핸드가 index 0 — 그대로 최신부터 보여주고 번호는 시간순으로 붙인다 */}
+        {hands.map((h) => (
+          <button key={h.index} className={`hand-chip ${sel === h.index ? 'active' : ''}`}
+            onClick={() => open(h.index)}>
+            #{hands.length - h.index} · {h.players.join('·')}{h.showdown ? ' · 쇼다운' : ''}
+          </button>
+        ))}
+      </div>
+
+      {frame && (
+        <div className="replay-body">
+          {worst && (
+            <div className="mistake-banner worst" onClick={() => setStep(worst.step + 1)}
+              title="클릭하면 그 지점으로 이동">
+              ⚠ 최대 실수: <b>{worst.playerName}</b> {translateStreet(worst.street)}{' '}
+              {worst.action === 'CALL' ? '콜' : '폴드'} — 이퀴티 {pct(worst.equity)}% vs 필요{' '}
+              {pct(worst.requiredEquity)}% (<b>-{worst.evLossBb.toFixed(1)}bb</b>)
+            </div>
+          )}
+          {review && !worst && <div className="mistake-banner clean">✔ 이 핸드에서 감지된 실수 없음</div>}
+
+          <div className="replay-stage">
+            <div className="replay-street">{translateStreet(frame.street)} · 팟 <b>{frame.pot}</b></div>
+            <div className="board">
+              {frame.board.length === 0
+                ? <span className="board-empty">프리플랍</span>
+                : frame.board.map((c) => <Card key={c} code={c} />)}
+            </div>
+            <div className="replay-seats">
+              {frame.seats.map((s) => (
+                <div key={s.playerId}
+                  className={`replay-seat ${s.status === 'FOLDED' ? 'folded' : ''} ${s.currentActor ? 'acting' : ''}`}>
+                  <span className="rname">{s.button && <span className="dealer">D</span>}{s.name}</span>
+                  <span className="rcards">{(s.holeCards || []).map((c) => <Card key={c} code={c} />)}</span>
+                  <span className="rstack"><span className="chip-ico sm" />{s.stack}</span>
+                  {s.committedThisStreet > 0 && <span className="rbet">벳 {s.committedThisStreet}</span>}
+                  {s.status === 'FOLDED' && <span className="fold-tag">FOLD</span>}
+                </div>
+              ))}
+            </div>
+            <div className="replay-action">{frame.action ? `▶ ${frame.action}` : '핸드 시작(딜·블라인드 직후)'}</div>
+            {curMistake && (
+              <div className="mistake-banner">
+                ⚠ <b>{curMistake.playerName}</b>의 {curMistake.action === 'CALL' ? '콜' : '폴드'}:
+                이퀴티 {pct(curMistake.equity)}%, 필요 이퀴티 {pct(curMistake.requiredEquity)}%
+                → EV <b>-{curMistake.evLossBb.toFixed(1)}bb</b>
+              </div>
+            )}
+          </div>
+
+          <div className="replay-ctrl">
+            <button className="ghost sm" disabled={step === 0} onClick={() => setStep(step - 1)}>◀ 이전</button>
+            <div className="timeline">
+              {frames.map((f, i) => (
+                <button key={i}
+                  className={`tstep ${i === step ? 'cur' : ''} ${mistakeAt[i] ? 'bad' : ''}`}
+                  title={f.action || '시작'} onClick={() => setStep(i)} />
+              ))}
+            </div>
+            <button className="ghost sm" disabled={step >= frames.length - 1}
+              onClick={() => setStep(step + 1)}>다음 ▶</button>
+          </div>
+          {review && <div className="assumption">{review.assumption}</div>}
+        </div>
+      )}
+
+      {session.length > 0 && (
+        <div className="session-report">
+          <b>세션 누적 리포트</b>
+          <table>
+            <thead>
+              <tr><th>플레이어</th><th>판정 지점</th><th>실수</th><th>EV 손실 합</th><th>최다 유형</th></tr>
+            </thead>
+            <tbody>
+              {session.map((r) => (
+                <tr key={r.playerId}>
+                  <td>{r.playerName || r.playerId}</td>
+                  <td>{r.decisions}</td>
+                  <td>{r.mistakes}</td>
+                  <td className={r.totalEvLossBb > 0 ? 'neg' : 'pos'}>
+                    {r.totalEvLossBb > 0 ? `-${r.totalEvLossBb.toFixed(1)}bb` : '0bb'}
+                  </td>
+                  <td>{r.topMistakeType ? translateMistakeType(r.topMistakeType) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ 플레이어 추가 + 저장된 플레이어 */
 function PlayerAdder({ onAdd, seatedIds, saved, onForget, compact }) {
   const [id, setId] = useState('');
@@ -208,6 +345,7 @@ export default function App() {
   const { players, views, errors, connected, addPlayer, removePlayer, startHand, act } = usePokerTable();
   const [picked, setPicked] = useState(null);
   const [saved, setSaved] = useState(loadSaved);
+  const [showReplay, setShowReplay] = useState(false);
 
   // 착석 시 저장 목록에 추가(중복 제거).
   const addAndSave = (id, name) => {
@@ -246,8 +384,15 @@ export default function App() {
         <span className="logo">♠ 홈포커</span>
         <span className={`dot ${connected[activeId] ? 'on' : 'off'}`} />
         <span className="whoami"><b>{activeId}</b>(으)로 플레이 중</span>
-        <button className="ghost" onClick={() => startHand(activeId)}>새 핸드 시작</button>
+        <span className="hbtns">
+          <button className="ghost" onClick={() => setShowReplay((v) => !v)}>
+            {showReplay ? '복기 닫기' : '핸드 복기'}
+          </button>
+          <button className="ghost" onClick={() => startHand(activeId)}>새 핸드 시작</button>
+        </span>
       </header>
+
+      {showReplay && <ReplayPanel onClose={() => setShowReplay(false)} />}
 
       <div className="players-panel">
         <div className="players-head">

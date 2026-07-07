@@ -38,7 +38,7 @@ header .whoami { opacity: .9; }
 header .dot { width: 10px; height: 10px; border-radius: 50%; }
 .dot.on { background: #57e389; box-shadow: 0 0 8px #57e389; }
 .dot.off { background: #e35757; }
-header button { margin-left: auto; }
+header .hbtns { margin-left: auto; display: flex; gap: 8px; }
 
 .error { background: #7a1f1f; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px;
   animation: dropIn .3s ease; }
@@ -170,6 +170,58 @@ input { padding: 9px 10px; border-radius: 8px; border: none; width: 190px; font-
 .leaderboard th, .leaderboard td { padding: 5px 8px; text-align: center; border-bottom: 1px solid #ffffff14; }
 .leaderboard td.pos { color: #57e389; font-weight: 700; }
 .leaderboard td.neg { color: #e35757; font-weight: 700; }
+
+/* ---------- 핸드 복기 ---------- */
+.replay-panel { background: #0e2a1c; border: 1px solid #ffffff12; border-radius: 14px;
+  padding: 14px; margin-bottom: 14px; animation: dropIn .25s ease; }
+.replay-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.replay-head b { font-size: 16px; }
+.replay-head .muted { font-size: 13px; flex: 1; }
+.replay-hands { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.hand-chip { background: #12341f; color: #f2f5f3; border: 1px solid #ffffff22;
+  border-radius: 999px; padding: 4px 12px; font-size: 13px; font-weight: 600; }
+.hand-chip.active { border-color: var(--gold); color: var(--gold); }
+
+.mistake-banner { background: #4a1d1d; border: 1px solid #e35757aa; border-radius: 10px;
+  padding: 8px 12px; font-size: 14px; margin-bottom: 8px; animation: dropIn .25s ease; }
+.mistake-banner b { color: #ff9a9a; }
+.mistake-banner.worst { cursor: pointer; border-width: 2px; }
+.mistake-banner.worst:hover { filter: brightness(1.15); }
+.mistake-banner.clean { background: #143a24; border-color: #57e38988; }
+
+.replay-stage { background: #0a2015; border: 1px solid #ffffff10; border-radius: 12px;
+  padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.replay-street { font-size: 13px; letter-spacing: 1px; opacity: .85; }
+.replay-street b { color: var(--gold); }
+.replay-seats { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; width: 100%; }
+.replay-seat { display: flex; align-items: center; gap: 8px; background: #0c2317aa;
+  border: 1px solid #ffffff1f; border-radius: 10px; padding: 5px 10px; font-size: 13px; }
+.replay-seat.acting { border-color: var(--gold); }
+.replay-seat.folded { opacity: .45; filter: grayscale(.6); }
+.replay-seat .rname { font-weight: 700; display: flex; align-items: center; gap: 4px; }
+.replay-seat .rcards { display: flex; gap: 3px; }
+.replay-seat .rcards .card { width: 28px; height: 40px; font-size: 12px; border-radius: 5px; }
+.replay-seat .rcards .card .pip { font-size: 11px; }
+.replay-seat .rstack { color: var(--gold); font-weight: 700; display: flex; align-items: center; gap: 4px; }
+.replay-seat .rbet { background: #00000055; border: 1px solid var(--gold); color: var(--gold);
+  border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 700; }
+.replay-action { font-size: 14px; font-weight: 700; min-height: 20px; }
+
+.replay-ctrl { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.timeline { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; justify-content: center; }
+.tstep { width: 14px; height: 14px; padding: 0; border-radius: 50%; background: #2a4a36;
+  border: 1px solid #ffffff33; }
+.tstep.cur { background: var(--gold); box-shadow: 0 0 8px #e7c56a99; }
+.tstep.bad { background: #c0464a; border-color: #ff9a9a; }
+.tstep.bad.cur { box-shadow: 0 0 8px #e35757; }
+.assumption { font-size: 11px; opacity: .5; margin-top: 8px; text-align: center; }
+
+.session-report { margin-top: 14px; border-top: 1px solid #ffffff14; padding-top: 12px; }
+.session-report table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
+.session-report th, .session-report td { padding: 5px 8px; text-align: center;
+  border-bottom: 1px solid #ffffff14; }
+.session-report td.pos { color: #57e389; font-weight: 700; }
+.session-report td.neg { color: #e35757; font-weight: 700; }
 
 /* ---------- 애니메이션 ---------- */
 @keyframes pulse { 50% { opacity: .55; } }
