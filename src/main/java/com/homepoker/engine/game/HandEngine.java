@@ -51,6 +51,11 @@ public class HandEngine {
     private List<Pot> pots = List.of();
     private boolean showdown = false; // 쇼다운까지 갔는가(폴드 무혈입성이면 false)
 
+    // 이벤트 소싱 기록: 초기 조건 + 적용된 액션. 리플레이(HandLog)로 상태를 결정적으로 복원한다.
+    private final List<Card> initialDeckOrder;
+    private final List<HandLog.Seat> initialSeats;
+    private final List<Action> appliedActions = new ArrayList<>();
+
     public HandEngine(List<Player> players, int button, long smallBlind, long bigBlind, Deck deck) {
         this.players = List.copyOf(players);
         this.n = this.players.size();
@@ -70,6 +75,14 @@ public class HandEngine {
         this.committedThisStreet = new long[n];
         this.committedTotal = new long[n];
         this.needsToAct = new boolean[n];
+
+        // 리플레이 기록용 초기 조건 스냅샷(딜 전이므로 덱은 온전하고 스택은 시작값).
+        this.initialDeckOrder = deck.remainingInOrder();
+        List<HandLog.Seat> seatSnapshot = new ArrayList<>(n);
+        for (Player p : this.players) {
+            seatSnapshot.add(new HandLog.Seat(p.id(), p.name(), p.stack()));
+        }
+        this.initialSeats = List.copyOf(seatSnapshot);
     }
 
     // ---------------------------------------------------------------- 시작
@@ -145,6 +158,7 @@ public class HandEngine {
         needsToAct[seat] = false;
 
         advanceAfterAction(seat);
+        appliedActions.add(action); // 검증·적용에 성공한 액션만 기록
     }
 
     private void applyBet(int seat, long amount) {
@@ -512,6 +526,11 @@ public class HandEngine {
 
     public List<Player> players() {
         return players;
+    }
+
+    /** 지금까지의 진행을 이벤트 소싱 기록으로 낸다(리플레이/핸드 히스토리용). */
+    public HandLog log() {
+        return new HandLog(initialSeats, button, smallBlind, bigBlind, initialDeckOrder, appliedActions);
     }
 
     /** 현재 액션자가 취할 수 있는 액션 종류. */

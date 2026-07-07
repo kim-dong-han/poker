@@ -68,4 +68,9 @@ public final class Deck {
     public int remaining() {
         return cards.size();
     }
+
+    /** 아직 딜하지 않은 카드를 딜 순서대로(맨 앞 = 다음에 뽑힐 카드) 스냅샷한다. 이벤트 소싱 기록용. */
+    public List<Card> remainingInOrder() {
+        return List.copyOf(cards);
+    }
 }

@@ -4,9 +4,12 @@ import com.homepoker.engine.card.Deck;
 import com.homepoker.engine.game.Action;
 import com.homepoker.engine.game.ActionType;
 import com.homepoker.engine.game.HandEngine;
+import com.homepoker.engine.game.HandLog;
 import com.homepoker.engine.game.Player;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +32,11 @@ public class Table {
 
     private HandEngine engine;   // 진행 중 핸드(없으면 null 또는 종료 상태)
     private int handCount = 0;
+
+    /** 최근 완료 핸드의 이벤트 소싱 기록(최신이 앞). 리플레이/핸드 히스토리용. */
+    private static final int HISTORY_LIMIT = 50;
+    private final Deque<HandLog> history = new ArrayDeque<>();
+    private boolean currentArchived = false;
 
     public Table(String id, long smallBlind, long bigBlind) {
         this.id = id;
@@ -83,6 +91,8 @@ public class Table {
         engine = new HandEngine(live, button, smallBlind, bigBlind, Deck.shuffled());
         engine.start();
         handCount++;
+        currentArchived = false;
+        archiveIfComplete(); // 전원 블라인드 올인 등으로 시작하자마자 끝나는 극단적 케이스
     }
 
     public synchronized void applyAction(String playerId, String type, long amount) {
@@ -98,10 +108,27 @@ public class Table {
             case RAISE -> Action.raiseTo(playerId, amount);
         };
         engine.apply(action);
+        archiveIfComplete();
+    }
+
+    /** 핸드가 막 종료됐다면 그 기록을 히스토리에 한 번만 보관한다. */
+    private void archiveIfComplete() {
+        if (engine != null && engine.isComplete() && !currentArchived) {
+            history.addFirst(engine.log());
+            while (history.size() > HISTORY_LIMIT) {
+                history.removeLast();
+            }
+            currentArchived = true;
+        }
     }
 
     public synchronized HandEngine engine() {
         return engine;
+    }
+
+    /** 완료된 핸드 기록(최신이 앞). */
+    public synchronized List<HandLog> history() {
+        return new ArrayList<>(history);
     }
 
     public synchronized List<Player> seatedPlayers() {
