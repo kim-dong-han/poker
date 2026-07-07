@@ -112,3 +112,6 @@ PREFLOP → FLOP → TURN → RIVER → SHOWDOWN → COMPLETE
 - 새 규칙 → `rule` 패키지에 정책으로 추가. 엔진에 if문으로 박지 않는다.
 - 새 실시간 기능 → `web`에서 처리하고 도메인은 `View` DTO로만 노출.
 - 무거운 연산 → `engine`을 오염시키지 말고 별도 서비스(예: `EquityService`)로 격리.
+- 시간/타이머 → 엔진은 시간을 모른다. 타임뱅크(`TurnTimer`+`TurnTimeoutSweeper`)는 `table` 계층에
+  두고 `Clock` 주입으로 테스트한다. 자동 액션도 일반 액션과 같은 경로(`enforceTimeout`→`applyAction`)로 넣어
+  통계·버스트 처리가 동일하게 돌게 한다.

@@ -20,7 +20,8 @@ class LobbyTest {
         return new TableService(
                 new RuleGuard(BuyInPolicy.defaults(), Clock.systemDefaultZone()),
                 new EquityService(),
-                new StatsService());
+                new StatsService(),
+                new TurnTimer(Clock.systemDefaultZone()));
     }
 
     @Test

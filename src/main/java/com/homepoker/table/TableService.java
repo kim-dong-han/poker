@@ -43,11 +43,14 @@ public class TableService {
     private final RuleGuard ruleGuard;
     private final EquityService equityService;
     private final StatsService statsService;
+    private final TurnTimer turnTimer;
 
-    public TableService(RuleGuard ruleGuard, EquityService equityService, StatsService statsService) {
+    public TableService(RuleGuard ruleGuard, EquityService equityService,
+                        StatsService statsService, TurnTimer turnTimer) {
         this.ruleGuard = ruleGuard;
         this.equityService = equityService;
         this.statsService = statsService;
+        this.turnTimer = turnTimer;
     }
 
     public Table getOrCreate(String tableId) {
@@ -79,6 +82,7 @@ public class TableService {
         }
         table.startHand();
         accumulators.put(tableId, HandAccumulator.forHand(table.engine(), preHandStacks));
+        syncTurnTimer(tableId, table);
     }
 
     public void applyAction(String tableId, String playerId, String type, long amount) {
@@ -89,6 +93,45 @@ public class TableService {
         recordPreflopTendency(tableId, playerId, type, streetBefore);
         finalizeStatsIfHandComplete(tableId, table);
         settleBustsIfHandComplete(table);
+        syncTurnTimer(tableId, table);
+    }
+
+    /** 상태 변화 후: 액션 대기자가 있으면 제한시간을 새로 걸고, 없으면(핸드 종료 등) 해제한다. */
+    private void syncTurnTimer(String tableId, Table table) {
+        if (table.handInProgress() && table.engine().playerToAct() != null) {
+            turnTimer.startTurn(tableId);
+        } else {
+            turnTimer.clear(tableId);
+        }
+    }
+
+    /**
+     * 현재 액션자의 제한시간이 지났으면 대신 자동 액션을 넣는다(체크 가능하면 체크, 아니면 폴드).
+     * 스케줄러가 주기적으로 호출한다. Table 모니터로 감싸 유저 액션과의 경합에서 원자성을 보장한다.
+     *
+     * @return 자동 액션을 실제로 넣었으면 true
+     */
+    public boolean enforceTimeout(String tableId) {
+        Table table = getOrCreate(tableId);
+        synchronized (table) {
+            if (!table.handInProgress()) {
+                turnTimer.clear(tableId);
+                return false;
+            }
+            HandEngine engine = table.engine();
+            Player actor = engine.playerToAct();
+            if (actor == null || !turnTimer.isExpired(tableId)) {
+                return false;
+            }
+            String type = engine.legalActions(actor.id()).contains(ActionType.CHECK) ? "CHECK" : "FOLD";
+            applyAction(tableId, actor.id(), type, 0); // 통계·버스트·타이머 재동기화까지 동일 경로로
+            return true;
+        }
+    }
+
+    /** 스케줄러가 훑을 현재 존재하는 테이블 id 목록. */
+    public List<String> activeTableIds() {
+        return List.copyOf(tables.keySet());
     }
 
     /** 프리플랍 액션이면 VPIP/PFR 성향을 이번 핸드 누적기에 기록. */
@@ -161,7 +204,7 @@ public class TableService {
                             0, null, false, false))
                     .toList();
             return new TableStateView(tableId, false, "WAITING", List.of(), 0,
-                    List.of(), seats, null, Set.of(), 0, 0, Map.of(), null);
+                    List.of(), seats, null, Set.of(), 0, 0, Map.of(), null, 0);
         }
 
         boolean revealAll = engine.isComplete() && engine.wentToShowdown();
@@ -195,7 +238,8 @@ public class TableService {
                 toCall,
                 engine.minRaiseTo(),
                 engine.payouts(),
-                viewerEquity);
+                viewerEquity,
+                turnTimer.secondsLeft(tableId));
     }
 
     /**

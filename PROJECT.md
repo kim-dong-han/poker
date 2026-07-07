@@ -47,8 +47,9 @@
 4. ✅ 이퀴티 오버레이 (몬테카를로, 본인 이퀴티만 push)
 5. ✅ StatsService + ROI 리더보드 (VPIP/PFR/net, `GET /api/leaderboard`)
 6. ✅ 핸드 히스토리 리플레이 (이벤트 소싱 `HandLog`, `GET /api/tables/{id}/hands`)
+7. ✅ 멀티 테이블 로비 (`GET /api/tables`) + 타임뱅크 (30초 제한·자동 액션)
 
-전체 56개 단위·통합 테스트 통과. 다음 후보는 [TODO.md](TODO.md) 참고.
+전체 64개 단위·통합 테스트 통과. 다음 후보는 [TODO.md](TODO.md) 참고.
 
 ## 문서 지도
 

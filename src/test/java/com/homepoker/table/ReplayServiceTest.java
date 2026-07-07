@@ -21,7 +21,8 @@ class ReplayServiceTest {
         return new TableService(
                 new RuleGuard(BuyInPolicy.defaults(), Clock.systemDefaultZone()),
                 new EquityService(),
-                new StatsService());
+                new StatsService(),
+                new TurnTimer(Clock.systemDefaultZone()));
     }
 
     /** 한 핸드를 체크/콜로 끝까지 진행시킨다. */

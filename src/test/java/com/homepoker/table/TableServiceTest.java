@@ -22,7 +22,8 @@ class TableServiceTest {
         return new TableService(
                 new RuleGuard(BuyInPolicy.defaults(), Clock.systemDefaultZone()),
                 new EquityService(),
-                new StatsService());
+                new StatsService(),
+                new TurnTimer(Clock.systemDefaultZone()));
     }
 
     private static SeatView seat(TableStateView view, String playerId) {
@@ -108,7 +109,8 @@ class TableServiceTest {
         StatsService stats = new StatsService();
         TableService service = new TableService(
                 new RuleGuard(BuyInPolicy.defaults(), Clock.systemDefaultZone()),
-                new EquityService(), stats);
+                new EquityService(), stats,
+                new TurnTimer(Clock.systemDefaultZone()));
         service.join("t1", "alice", "Alice", 1000);
         service.join("t1", "bob", "Bob", 1000);
         service.startHand("t1");
