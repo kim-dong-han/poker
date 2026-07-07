@@ -161,6 +161,39 @@ function Leaderboard() {
   );
 }
 
+/* ------------------------------------------------------------------ 검증 가능한 셔플(commit-reveal) */
+// 서버와 동일 규칙: SHA-256(salt + ":" + 덱 표기를 ,로 연결) 소문자 hex. 비보안 컨텍스트면 null.
+async function sha256Hex(text) {
+  if (!window.crypto?.subtle) return null;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function ShuffleProofBox({ proof }) {
+  const [verified, setVerified] = useState(null); // null=검증불가/대기, true/false=결과
+  useEffect(() => {
+    setVerified(null);
+    if (!proof) return;
+    sha256Hex(`${proof.salt}:${proof.deckOrder.join(',')}`)
+      .then((h) => setVerified(h === null ? null : h === proof.commitment))
+      .catch(() => setVerified(null));
+  }, [proof]);
+  if (!proof) return null;
+  return (
+    <div className="fair-proof">
+      🔒 검증 가능한 셔플 — 시작 전 커밋 <code>{proof.commitment.slice(0, 16)}…</code>
+      {verified === true && <span className="verify ok">✓ 브라우저 재계산 해시 일치 — 진행 중 덱 조작 없음</span>}
+      {verified === false && <span className="verify bad">✗ 해시 불일치 — 셔플이 커밋과 다름!</span>}
+      {verified === null && <span className="verify muted">브라우저 해시 검증 불가(HTTPS/localhost 필요)</span>}
+      <details>
+        <summary>공개값(솔트·덱 순서) 보기</summary>
+        <div className="mono">salt: {proof.salt}</div>
+        <div className="mono">deck: {proof.deckOrder.join(',')}</div>
+      </details>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ 핸드 복기(리플레이 + EV 손실 실수 마커) */
 const pct = (x) => Math.round(x * 100);
 
@@ -175,11 +208,13 @@ function ReplayPanel({ onClose }) {
   const [frames, setFrames] = useState([]);
   const [review, setReview] = useState(null);
   const [session, setSession] = useState([]);
+  const [fairness, setFairness] = useState(null);
   const [step, setStep] = useState(0);
 
   useEffect(() => {
     fetch('/api/tables/t1/hands').then((r) => r.json()).then(setHands).catch(() => {});
     fetch('/api/tables/t1/review/session').then((r) => r.json()).then(setSession).catch(() => {});
+    fetch('/api/tables/t1/fairness').then((r) => r.json()).then(setFairness).catch(() => {});
   }, []);
 
   const open = (i) => {
@@ -267,6 +302,7 @@ function ReplayPanel({ onClose }) {
             <button className="ghost sm" disabled={step >= frames.length - 1}
               onClick={() => setStep(step + 1)}>다음 ▶</button>
           </div>
+          <ShuffleProofBox proof={sel != null ? fairness?.proofs?.[sel] : null} />
           {review && <div className="assumption">{review.assumption}</div>}
         </div>
       )}
@@ -346,6 +382,7 @@ export default function App() {
   const [picked, setPicked] = useState(null);
   const [saved, setSaved] = useState(loadSaved);
   const [showReplay, setShowReplay] = useState(false);
+  const [commitment, setCommitment] = useState(null);
 
   // 착석 시 저장 목록에 추가(중복 제거).
   const addAndSave = (id, name) => {
@@ -365,6 +402,14 @@ export default function App() {
   const actorId = state?.handInProgress ? state.currentActorId : null;
   const done = state && !state.handInProgress;
   const payouts = state?.payouts || {};
+
+  // 핸드 시작/종료 시 현재 셔플 커밋 해시를 갱신(시작 전 공개 = 조작 불가 증명의 앞단).
+  const inProgress = state?.handInProgress ?? false;
+  useEffect(() => {
+    if (!state) { setCommitment(null); return; }
+    fetch('/api/tables/t1/fairness').then((r) => r.json())
+      .then((f) => setCommitment(f.currentCommitment)).catch(() => {});
+  }, [inProgress]);
 
   if (players.length === 0) {
     return <PlayerAdder onAdd={addAndSave} seatedIds={seatedIds} saved={saved} onForget={forget} />;
@@ -434,6 +479,12 @@ export default function App() {
                   {state.viewerEquity != null && (
                     <div className="equity" title="내 홀카드 기준 몬테카를로 승률">
                       내 승률 {Math.round(state.viewerEquity * 100)}%
+                    </div>
+                  )}
+                  {commitment && (
+                    <div className="fair-badge"
+                      title={`셔플 커밋(SHA-256): ${commitment}\n딜 전에 공개된 해시 — 핸드 종료 후 '핸드 복기'에서 솔트·덱이 공개되면 브라우저가 재계산해 검증합니다.`}>
+                      🔒 셔플 커밋 {commitment.slice(0, 10)}…
                     </div>
                   )}
                 </div>

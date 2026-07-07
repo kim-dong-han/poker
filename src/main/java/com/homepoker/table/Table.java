@@ -6,6 +6,8 @@ import com.homepoker.engine.game.ActionType;
 import com.homepoker.engine.game.HandEngine;
 import com.homepoker.engine.game.HandLog;
 import com.homepoker.engine.game.Player;
+import com.homepoker.fairness.CommittedShuffle;
+import com.homepoker.fairness.ShuffleProof;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -37,6 +39,13 @@ public class Table {
     private static final int HISTORY_LIMIT = 50;
     private final Deque<HandLog> history = new ArrayDeque<>();
     private boolean currentArchived = false;
+
+    /**
+     * 검증 가능한 셔플(commit-reveal). 진행 중엔 commitment(해시)만 노출하고,
+     * 핸드가 완료돼 히스토리에 들어갈 때 같은 인덱스로 증명(솔트+덱)을 공개한다.
+     */
+    private CommittedShuffle currentShuffle;
+    private final Deque<ShuffleProof> proofs = new ArrayDeque<>();
 
     public Table(String id, long smallBlind, long bigBlind) {
         this.id = id;
@@ -88,7 +97,8 @@ public class Table {
             throw new IllegalStateException("핸드를 시작하려면 칩 보유 플레이어가 2명 이상이어야 한다");
         }
         int button = handCount % live.size();
-        engine = new HandEngine(live, button, smallBlind, bigBlind, Deck.shuffled());
+        currentShuffle = CommittedShuffle.create();
+        engine = new HandEngine(live, button, smallBlind, bigBlind, Deck.ofOrder(currentShuffle.order()));
         engine.start();
         handCount++;
         currentArchived = false;
@@ -111,12 +121,14 @@ public class Table {
         archiveIfComplete();
     }
 
-    /** 핸드가 막 종료됐다면 그 기록을 히스토리에 한 번만 보관한다. */
+    /** 핸드가 막 종료됐다면 그 기록과 셔플 증명을 같은 인덱스로 한 번만 보관한다. */
     private void archiveIfComplete() {
         if (engine != null && engine.isComplete() && !currentArchived) {
             history.addFirst(engine.log());
+            proofs.addFirst(currentShuffle.proof()); // 종료 후에만 리빌 — 진행 중 덱 유출 금지
             while (history.size() > HISTORY_LIMIT) {
                 history.removeLast();
+                proofs.removeLast();
             }
             currentArchived = true;
         }
@@ -129,6 +141,16 @@ public class Table {
     /** 완료된 핸드 기록(최신이 앞). */
     public synchronized List<HandLog> history() {
         return new ArrayList<>(history);
+    }
+
+    /** 현재(또는 마지막) 핸드의 셔플 커밋 해시. 핸드 시작 전이면 null. 해시뿐이라 언제 노출해도 안전. */
+    public synchronized String shuffleCommitment() {
+        return currentShuffle == null ? null : currentShuffle.commitment();
+    }
+
+    /** 완료 핸드의 셔플 증명(최신이 앞, history() 와 같은 인덱스). 진행 중 핸드 것은 절대 포함되지 않는다. */
+    public synchronized List<ShuffleProof> shuffleProofs() {
+        return new ArrayList<>(proofs);
     }
 
     /** 진행 중인 핸드가 있는가(로비 표시용). */
