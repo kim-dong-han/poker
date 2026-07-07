@@ -49,8 +49,9 @@
 6. ✅ 핸드 히스토리 리플레이 (이벤트 소싱 `HandLog`, `GET /api/tables/{id}/hands`)
 7. ✅ 멀티 테이블 로비 (`GET /api/tables`) + 타임뱅크 (30초 제한·자동 액션)
 8. ✅ 통계 영속화 (JSON 파일 스냅샷, 재시작 후 리더보드 복원)
+9. ✅ 관전 모드 + 프리플랍 레인지 오버레이 (6-max RFI, `GET /api/preflop-range`)
 
-전체 68개 단위·통합 테스트 통과. 다음 후보는 [TODO.md](TODO.md) 참고.
+전체 74개 단위·통합 테스트 통과. 다음 후보는 [TODO.md](TODO.md) 참고.
 
 ## 문서 지도
 

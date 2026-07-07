@@ -96,6 +96,7 @@ PREFLOP → FLOP → TURN → RIVER → SHOWDOWN → COMPLETE
 | 메서드 | 경로 | 응답 |
 |--------|------|------|
 | GET | `/api/leaderboard` | ROI 리더보드(VPIP/PFR/net) |
+| GET | `/api/preflop-range` `/{pos}` `/{pos}/advice?hand=` | 6-max RFI 오픈 레인지 오버레이 |
 | GET | `/api/tables` | 로비: 활성 테이블 목록(좌석수·진행상태) |
 | GET | `/api/tables/{id}/spectate` | 관전 뷰(어떤 홀카드도 안 보임, 액션권 없음) |
 | GET | `/api/tables/{id}/hands` | 완료 핸드 목록(최신순, 이벤트 소싱 요약) |
