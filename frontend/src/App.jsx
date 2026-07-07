@@ -145,11 +145,14 @@ function PlayerAdder({ onAdd, seatedIds, compact }) {
 
 export default function App() {
   const { players, views, errors, connected, addPlayer, removePlayer, startHand, act } = usePokerTable();
+  const [picked, setPicked] = useState(null);
 
   const seatedIds = players.map((p) => p.id);
-  const primary = players[0];              // Part 1: 뷰는 대표(첫) 플레이어 기준
-  const state = primary ? views[primary.id] : null;
-  const error = primary ? errors[primary.id] : null;
+  // 지금 조종 중인(=뷰 기준) 플레이어. 고른 사람이 없거나 빠졌으면 첫 플레이어로.
+  const activeId = picked && seatedIds.includes(picked) ? picked : players[0]?.id;
+  const state = activeId ? views[activeId] : null;
+  const error = activeId ? errors[activeId] : null;
+  const actorId = state?.handInProgress ? state.currentActorId : null;
 
   if (players.length === 0) {
     return <PlayerAdder onAdd={addPlayer} seatedIds={seatedIds} />;
@@ -158,19 +161,25 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <span className={`dot ${connected[primary.id] ? 'on' : 'off'}`} />
-        <span>테이블 t1 · 로컬 테스트</span>
-        <button className="ghost" onClick={() => startHand(primary.id)}>새 핸드 시작</button>
+        <span className={`dot ${connected[activeId] ? 'on' : 'off'}`} />
+        <span>테이블 t1 · <b>{activeId}</b>(으)로 플레이 중</span>
+        <button className="ghost" onClick={() => startHand(activeId)}>새 핸드 시작</button>
       </header>
 
       <div className="players-panel">
-        <div className="players-head"><b>참가자 {players.length}명</b></div>
+        <div className="players-head">
+          <b>참가자 {players.length}명</b> <span className="muted">— 칩을 눌러 그 사람으로 전환</span>
+        </div>
         <div className="player-chips">
           {players.map((p) => (
-            <span key={p.id} className="pchip">
+            <span key={p.id}
+              className={`pchip ${p.id === activeId ? 'active' : ''} ${p.id === actorId ? 'toact' : ''}`}
+              onClick={() => setPicked(p.id)}>
               <span className={`dot ${connected[p.id] ? 'on' : 'off'}`} />
               {p.name}
-              <button className="x" title="퇴장" onClick={() => removePlayer(p.id)}>×</button>
+              {p.id === actorId && <span className="turn-badge">차례</span>}
+              <button className="x" title="퇴장"
+                onClick={(e) => { e.stopPropagation(); removePlayer(p.id); }}>×</button>
             </span>
           ))}
         </div>
@@ -191,10 +200,15 @@ export default function App() {
                 : state.board.map((c, i) => <Card key={i} code={c} />)}
             </div>
             <div className="pot">팟 {state.pot}</div>
-            {state.handInProgress && state.currentActorId && (
+            {actorId && (
               <div className="turn-line">
-                차례: <b>{state.currentActorId}</b>
-                <Countdown actorId={state.currentActorId} seconds={state.turnSecondsLeft} />
+                차례: <b>{actorId}</b>
+                <Countdown actorId={actorId} seconds={state.turnSecondsLeft} />
+                {actorId !== activeId && (
+                  <button className="ghost sm" onClick={() => setPicked(actorId)}>
+                    {actorId}(으)로 전환 →
+                  </button>
+                )}
               </div>
             )}
             {state.viewerEquity != null && (
@@ -206,12 +220,17 @@ export default function App() {
 
           <div className="seats">
             {state.seats.map((s) => (
-              <Seat key={s.playerId} seat={s} isViewer={s.playerId === primary.id} />
+              <Seat key={s.playerId} seat={s} isViewer={s.playerId === activeId} />
             ))}
           </div>
 
           {state.handInProgress && (
-            <ActionBar state={state} act={(type, amount) => act(primary.id, type, amount)} />
+            actorId === activeId
+              ? <ActionBar state={state} act={(type, amount) => act(activeId, type, amount)} />
+              : <div className="actionbar muted">
+                  {activeId}는 대기 중 — 지금은 <b>{actorId}</b> 차례입니다
+                  {actorId && <button className="ghost sm" onClick={() => setPicked(actorId)}>전환</button>}
+                </div>
           )}
 
           {!state.handInProgress && Object.keys(state.payouts || {}).length > 0 && (
