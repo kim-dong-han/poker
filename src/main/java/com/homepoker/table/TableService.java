@@ -190,6 +190,13 @@ public class TableService {
         return getOrCreate(tableId).seatedPlayerIds();
     }
 
+    /** 착석하지 않은 관전자용 뷰: 어떤 좌석의 홀카드도 보이지 않는다(쇼다운 공개분 제외). */
+    private static final String SPECTATOR = "__spectator__";
+
+    public TableStateView spectate(String tableId) {
+        return viewFor(tableId, SPECTATOR);
+    }
+
     /**
      * viewerId 관점의 테이블 상태. 상대 홀카드는 담기지 않는다(쇼다운 공개 대상만 예외).
      */

@@ -97,6 +97,7 @@ PREFLOP → FLOP → TURN → RIVER → SHOWDOWN → COMPLETE
 |--------|------|------|
 | GET | `/api/leaderboard` | ROI 리더보드(VPIP/PFR/net) |
 | GET | `/api/tables` | 로비: 활성 테이블 목록(좌석수·진행상태) |
+| GET | `/api/tables/{id}/spectate` | 관전 뷰(어떤 홀카드도 안 보임, 액션권 없음) |
 | GET | `/api/tables/{id}/hands` | 완료 핸드 목록(최신순, 이벤트 소싱 요약) |
 | GET | `/api/tables/{id}/hands/{index}` | 그 핸드의 프레임 단위 리플레이(전 카드 공개) |
 
