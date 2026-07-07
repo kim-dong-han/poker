@@ -1,55 +1,106 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { usePokerTable } from './usePokerTable.js';
 
 const SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
 
-function Card({ code }) {
-  if (!code) return <span className="card back" />;
+/* ------------------------------------------------------------------ 저장된 플레이어(localStorage) */
+const SAVED_KEY = 'homepoker.players';
+function loadSaved() {
+  try { return JSON.parse(localStorage.getItem(SAVED_KEY)) || []; } catch { return []; }
+}
+function persistSaved(list) {
+  try { localStorage.setItem(SAVED_KEY, JSON.stringify(list)); } catch { /* 무시 */ }
+}
+
+/* ------------------------------------------------------------------ 카드 */
+function Card({ code, faceDown, delay = 0, flip }) {
+  if (faceDown || !code) {
+    return <span className="card back" style={{ animationDelay: `${delay}ms` }} />;
+  }
   const rank = code.slice(0, -1);
   const suit = code.slice(-1);
   const red = suit === 'h' || suit === 'd';
   return (
-    <span className={`card ${red ? 'red' : 'black'}`}>
+    <span className={`card ${red ? 'red' : 'black'} ${flip ? 'flip' : ''}`}
+      style={{ animationDelay: `${delay}ms` }}>
       <b>{rank}</b>
-      <span>{SUIT[suit] || suit}</span>
+      <span className="pip">{SUIT[suit] || suit}</span>
     </span>
   );
 }
 
-function Seat({ seat, isViewer }) {
-  const hidden = !seat.holeCards;
+/* ------------------------------------------------------------------ 카운트다운 링 */
+function TimerRing({ actorId, seconds, total = 30 }) {
+  const [left, setLeft] = useState(seconds ?? 0);
+  useEffect(() => {
+    setLeft(seconds ?? 0);
+    const t = setInterval(() => setLeft((s) => (s > 0 ? s - 1 : 0)), 1000);
+    return () => clearInterval(t);
+  }, [actorId, seconds]);
+  const r = 20;
+  const circ = 2 * Math.PI * r;
+  const frac = Math.max(0, Math.min(1, left / total));
+  const urgent = left <= 5;
   return (
-    <div className={`seat ${seat.currentActor ? 'acting' : ''} ${seat.status === 'FOLDED' ? 'folded' : ''}`}>
-      <div className="seat-head">
-        {seat.button && <span className="dealer">D</span>}
-        <span className="seat-name">{seat.name}{isViewer ? ' (나)' : ''}</span>
+    <span className={`timer-ring ${urgent ? 'urgent' : ''}`}>
+      <svg viewBox="0 0 48 48" width="48" height="48">
+        <circle cx="24" cy="24" r={r} className="ring-bg" />
+        <circle cx="24" cy="24" r={r} className="ring-fg"
+          strokeDasharray={circ} strokeDashoffset={circ * (1 - frac)}
+          transform="rotate(-90 24 24)" />
+      </svg>
+      <span className="timer-num">{left}</span>
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ 좌석(테이블 둘레에 배치) */
+function Seat({ seat, isViewer, pos, secondsLeft, actorId, isWinner }) {
+  const hidden = !seat.holeCards;
+  const cards = seat.holeCards
+    ? seat.holeCards.map((c, i) => <Card key={i} code={c} flip delay={i * 90} />)
+    : (seat.status !== 'FOLDED' ? [<Card key="a" faceDown />, <Card key="b" faceDown />] : null);
+  return (
+    <div className={`seat ${seat.currentActor ? 'acting' : ''} ${seat.status === 'FOLDED' ? 'folded' : ''} ${isWinner ? 'winner' : ''}`}
+      style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
+      {seat.currentActor && actorId && (
+        <div className="seat-timer"><TimerRing actorId={actorId} seconds={secondsLeft} /></div>
+      )}
+      <div className="seat-cards">{cards}</div>
+      <div className="seat-plate">
+        <div className="seat-name">
+          {seat.button && <span className="dealer">D</span>}
+          {seat.name}{isViewer ? ' (나)' : ''}
+        </div>
+        <div className="seat-stack"><span className="chip-ico" />{seat.stack}</div>
       </div>
-      <div className="seat-cards">
-        {seat.holeCards
-          ? seat.holeCards.map((c, i) => <Card key={i} code={c} />)
-          : (seat.status !== 'FOLDED' ? [<Card key="a" />, <Card key="b" />] : null)}
-      </div>
-      <div className="seat-foot">
-        <span className="stack">{seat.stack}</span>
-        {seat.committedThisStreet > 0 && <span className="bet">벳 {seat.committedThisStreet}</span>}
-        <span className="status">{seat.status}</span>
-      </div>
+      {seat.committedThisStreet > 0 && (
+        <div className={`seat-bet bet-${betSide(pos)}`}><span className="chip-ico sm" />{seat.committedThisStreet}</div>
+      )}
+      {seat.status === 'FOLDED' && <div className="fold-tag">FOLD</div>}
     </div>
   );
 }
 
-function Countdown({ actorId, seconds }) {
-  // 서버가 준 남은 초에서 시작해 로컬로 1초씩 깎는다. 액션자나 값이 바뀌면 리셋.
-  const [left, setLeft] = useState(seconds);
-  React.useEffect(() => {
-    setLeft(seconds);
-    const t = setInterval(() => setLeft((s) => (s > 0 ? s - 1 : 0)), 1000);
-    return () => clearInterval(t);
-  }, [actorId, seconds]);
-  if (seconds == null || seconds <= 0) return null;
-  return <span className={`turn-timer ${left <= 5 ? 'urgent' : ''}`}>⏱ {left}s</span>;
+// 좌석 위치에 따라 베팅 칩을 테이블 중앙 쪽으로 살짝 붙인다.
+function betSide(pos) {
+  if (pos.y > 60) return 'up';
+  if (pos.y < 40) return 'down';
+  return pos.x < 50 ? 'right' : 'left';
 }
 
+/* N인 좌석을 타원 둘레에 배치. index 0(=뷰어)이 하단 중앙, 시계방향. */
+function seatPositions(n) {
+  const rx = 44, ry = 38, cx = 50, cy = 50;
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    const theta = (Math.PI / 2) + (k * 2 * Math.PI) / n; // 하단에서 시작
+    out.push({ x: cx + rx * Math.cos(theta), y: cy + ry * Math.sin(theta) });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ 액션바 */
 function ActionBar({ state, act }) {
   const legal = new Set(state.viewerLegalActions || []);
   const [amount, setAmount] = useState('');
@@ -58,32 +109,27 @@ function ActionBar({ state, act }) {
   const defaultTo = state.viewerMinRaiseTo || 0;
   const amt = amount === '' ? defaultTo : Number(amount);
 
-  if (legal.size === 0) {
-    return <div className="actionbar muted">당신 차례가 아닙니다…</div>;
-  }
+  if (legal.size === 0) return null;
   return (
     <div className="actionbar">
-      {legal.has('FOLD') && <button onClick={() => act('FOLD')}>폴드</button>}
-      {legal.has('CHECK') && <button onClick={() => act('CHECK')}>체크</button>}
-      {legal.has('CALL') && <button onClick={() => act('CALL')}>콜 {state.viewerToCall}</button>}
+      {legal.has('FOLD') && <button className="act fold" onClick={() => act('FOLD')}>폴드</button>}
+      {legal.has('CHECK') && <button className="act check" onClick={() => act('CHECK')}>체크</button>}
+      {legal.has('CALL') && <button className="act call" onClick={() => act('CALL')}>콜 <b>{state.viewerToCall}</b></button>}
       {(canBet || canRaise) && (
         <span className="raise-group">
-          <input
-            type="number"
-            value={amt}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-          {canBet && <button onClick={() => act('BET', amt)}>벳</button>}
-          {canRaise && <button onClick={() => act('RAISE', amt)}>레이즈 to</button>}
+          <input type="number" value={amt} onChange={(e) => setAmount(e.target.value)} />
+          {canBet && <button className="act raise" onClick={() => act('BET', amt)}>벳</button>}
+          {canRaise && <button className="act raise" onClick={() => act('RAISE', amt)}>레이즈 to</button>}
         </span>
       )}
     </div>
   );
 }
 
+/* ------------------------------------------------------------------ 리더보드 */
 function Leaderboard() {
   const [rows, setRows] = useState([]);
-  React.useEffect(() => {
+  useEffect(() => {
     const load = () => fetch('/api/leaderboard').then((r) => r.json()).then(setRows).catch(() => {});
     load();
     const t = setInterval(load, 4000);
@@ -115,54 +161,91 @@ function Leaderboard() {
   );
 }
 
-function PlayerAdder({ onAdd, seatedIds, compact }) {
+/* ------------------------------------------------------------------ 플레이어 추가 + 저장된 플레이어 */
+function PlayerAdder({ onAdd, seatedIds, saved, onForget, compact }) {
   const [id, setId] = useState('');
   const [name, setName] = useState('');
   const submit = () => {
     const pid = id.trim();
     if (!pid || seatedIds.includes(pid)) return;
     onAdd(pid, name.trim());
-    setId('');
-    setName('');
+    setId(''); setName('');
   };
   const onEnter = (e) => e.key === 'Enter' && submit();
+  const available = saved.filter((s) => !seatedIds.includes(s.id));
   return (
     <div className={compact ? 'add-inline' : 'login'}>
       {!compact && (
         <>
-          <h1>홈포커 테이블 t1 · 로컬 테스트</h1>
-          <p>혼자서 여러 명을 앉혀 진행할 수 있어요. 플레이어를 추가하세요(2명 이상이면 핸드 시작 가능).</p>
+          <h1>♠ 홈포커 <span className="thin">테이블 t1</span></h1>
+          <p>혼자서 여러 명을 앉혀 진행하는 로컬 테스트. 플레이어를 추가하세요(2명+면 시작 가능).</p>
         </>
       )}
-      <input placeholder="플레이어 ID (예: alice)" value={id}
-        onChange={(e) => setId(e.target.value)} onKeyDown={onEnter} />
-      <input placeholder="표시 이름(선택)" value={name}
-        onChange={(e) => setName(e.target.value)} onKeyDown={onEnter} />
-      <button disabled={!id.trim()} onClick={submit}>착석</button>
+      {available.length > 0 && (
+        <div className="saved-players">
+          <span className="saved-label">저장된 플레이어</span>
+          {available.map((s) => (
+            <span key={s.id} className="saved-chip">
+              <button className="seat-quick" onClick={() => onAdd(s.id, s.name)}>+ {s.name}</button>
+              <button className="forget" title="목록에서 삭제" onClick={() => onForget(s.id)}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="add-row">
+        <input placeholder="플레이어 ID (예: alice)" value={id}
+          onChange={(e) => setId(e.target.value)} onKeyDown={onEnter} />
+        <input placeholder="표시 이름(선택)" value={name}
+          onChange={(e) => setName(e.target.value)} onKeyDown={onEnter} />
+        <button className="primary" disabled={!id.trim()} onClick={submit}>착석</button>
+      </div>
     </div>
   );
 }
 
+/* ------------------------------------------------------------------ 앱 */
 export default function App() {
   const { players, views, errors, connected, addPlayer, removePlayer, startHand, act } = usePokerTable();
   const [picked, setPicked] = useState(null);
+  const [saved, setSaved] = useState(loadSaved);
+
+  // 착석 시 저장 목록에 추가(중복 제거).
+  const addAndSave = (id, name) => {
+    addPlayer(id, name);
+    setSaved((prev) => {
+      const next = prev.some((p) => p.id === id) ? prev : [...prev, { id, name: name || id }];
+      persistSaved(next);
+      return next;
+    });
+  };
+  const forget = (id) => setSaved((prev) => { const n = prev.filter((p) => p.id !== id); persistSaved(n); return n; });
 
   const seatedIds = players.map((p) => p.id);
-  // 지금 조종 중인(=뷰 기준) 플레이어. 고른 사람이 없거나 빠졌으면 첫 플레이어로.
   const activeId = picked && seatedIds.includes(picked) ? picked : players[0]?.id;
   const state = activeId ? views[activeId] : null;
   const error = activeId ? errors[activeId] : null;
   const actorId = state?.handInProgress ? state.currentActorId : null;
+  const done = state && !state.handInProgress;
+  const payouts = state?.payouts || {};
 
   if (players.length === 0) {
-    return <PlayerAdder onAdd={addPlayer} seatedIds={seatedIds} />;
+    return <PlayerAdder onAdd={addAndSave} seatedIds={seatedIds} saved={saved} onForget={forget} />;
+  }
+
+  const positions = state ? seatPositions(state.seats.length) : [];
+  // 좌석을 회전시켜 activeId 를 하단(index 0)에 오게 한다.
+  let ordered = state ? state.seats : [];
+  if (state) {
+    const vi = state.seats.findIndex((s) => s.playerId === activeId);
+    if (vi > 0) ordered = [...state.seats.slice(vi), ...state.seats.slice(0, vi)];
   }
 
   return (
     <div className="app">
       <header>
+        <span className="logo">♠ 홈포커</span>
         <span className={`dot ${connected[activeId] ? 'on' : 'off'}`} />
-        <span>테이블 t1 · <b>{activeId}</b>(으)로 플레이 중</span>
+        <span className="whoami"><b>{activeId}</b>(으)로 플레이 중</span>
         <button className="ghost" onClick={() => startHand(activeId)}>새 핸드 시작</button>
       </header>
 
@@ -183,59 +266,57 @@ export default function App() {
             </span>
           ))}
         </div>
-        <PlayerAdder onAdd={addPlayer} seatedIds={seatedIds} compact />
+        <PlayerAdder onAdd={addAndSave} seatedIds={seatedIds} saved={saved} onForget={forget} compact />
       </div>
 
       {error && <div className="error">⚠ {error}</div>}
-
-      {!state && <div className="muted">연결 중…</div>}
+      {!state && <div className="muted center">연결 중…</div>}
 
       {state && (
         <main>
-          <div className="board-area">
-            <div className="street">{translateStreet(state.street)}</div>
-            <div className="board">
-              {state.board.length === 0
-                ? <span className="muted">보드 없음</span>
-                : state.board.map((c, i) => <Card key={i} code={c} />)}
-            </div>
-            <div className="pot">팟 {state.pot}</div>
-            {actorId && (
-              <div className="turn-line">
-                차례: <b>{actorId}</b>
-                <Countdown actorId={actorId} seconds={state.turnSecondsLeft} />
-                {actorId !== activeId && (
-                  <button className="ghost sm" onClick={() => setPicked(actorId)}>
-                    {actorId}(으)로 전환 →
-                  </button>
-                )}
-              </div>
-            )}
-            {state.viewerEquity != null && (
-              <div className="equity" title="내 홀카드 기준 몬테카를로 승률">
-                내 이퀴티 {Math.round(state.viewerEquity * 100)}%
-              </div>
-            )}
-          </div>
+          <div className="table-wrap">
+            <div className="poker-table">
+              <div className="rail" />
+              <div className="felt">
+                <div className="table-center">
+                  <div className="street-badge">{translateStreet(state.street)}</div>
+                  <div className="board">
+                    {state.board.length === 0
+                      ? <span className="board-empty">— 보드 —</span>
+                      : state.board.map((c, i) => <Card key={c} code={c} flip delay={i * 120} />)}
+                  </div>
+                  <div className="pot"><span className="chip-ico" />팟 <b>{state.pot}</b></div>
+                  {state.viewerEquity != null && (
+                    <div className="equity" title="내 홀카드 기준 몬테카를로 승률">
+                      내 승률 {Math.round(state.viewerEquity * 100)}%
+                    </div>
+                  )}
+                </div>
 
-          <div className="seats">
-            {state.seats.map((s) => (
-              <Seat key={s.playerId} seat={s} isViewer={s.playerId === activeId} />
-            ))}
+                {ordered.map((s, i) => (
+                  <Seat key={s.playerId} seat={s} pos={positions[i]}
+                    isViewer={s.playerId === activeId}
+                    secondsLeft={state.turnSecondsLeft} actorId={actorId}
+                    isWinner={done && payouts[s.playerId] > 0} />
+                ))}
+              </div>
+            </div>
           </div>
 
           {state.handInProgress && (
             actorId === activeId
               ? <ActionBar state={state} act={(type, amount) => act(activeId, type, amount)} />
-              : <div className="actionbar muted">
-                  {activeId}는 대기 중 — 지금은 <b>{actorId}</b> 차례입니다
-                  {actorId && <button className="ghost sm" onClick={() => setPicked(actorId)}>전환</button>}
+              : <div className="turn-hint">
+                  <TimerRing actorId={actorId} seconds={state.turnSecondsLeft} />
+                  지금은 <b>{actorId}</b> 차례
+                  {actorId && <button className="ghost sm" onClick={() => setPicked(actorId)}>{actorId}(으)로 전환 →</button>}
                 </div>
           )}
 
-          {!state.handInProgress && Object.keys(state.payouts || {}).length > 0 && (
+          {done && Object.keys(payouts).length > 0 && (
             <div className="result">
-              <b>결과</b> {Object.entries(state.payouts).map(([id, amt]) => `${id}: +${amt}`).join(' · ')}
+              🏆 {Object.entries(payouts).filter(([, a]) => a > 0)
+                .map(([id, amt]) => `${id} +${amt}`).join(' · ')}
             </div>
           )}
 
