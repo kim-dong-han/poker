@@ -109,7 +109,9 @@ function ActionBar({ state, act }) {
   const canRaise = legal.has('RAISE');
   const canBet = legal.has('BET');
   const defaultTo = state.viewerMinRaiseTo || 0;
+  // 입력칸은 자유롭게 지우고 다시 쓸 수 있어야 한다 — 빈 값이면 전송 시에만 최소 금액으로 대체.
   const amt = amount === '' ? defaultTo : Number(amount);
+  const submit = (type) => { act(type, amt); setAmount(''); };
 
   if (legal.size === 0) return null;
   return (
@@ -119,9 +121,10 @@ function ActionBar({ state, act }) {
       {legal.has('CALL') && <button className="act call" onClick={() => act('CALL')}>콜 <b>{state.viewerToCall}</b></button>}
       {(canBet || canRaise) && (
         <span className="raise-group">
-          <input type="number" value={amt} onChange={(e) => setAmount(e.target.value)} />
-          {canBet && <button className="act raise" onClick={() => act('BET', amt)}>벳</button>}
-          {canRaise && <button className="act raise" onClick={() => act('RAISE', amt)}>레이즈 to</button>}
+          <input type="number" value={amount} placeholder={String(defaultTo)}
+            min={defaultTo} onChange={(e) => setAmount(e.target.value)} />
+          {canBet && <button className="act raise" onClick={() => submit('BET')}>벳 {amt}</button>}
+          {canRaise && <button className="act raise" onClick={() => submit('RAISE')}>레이즈 to {amt}</button>}
         </span>
       )}
     </div>
