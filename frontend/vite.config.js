@@ -14,6 +14,7 @@ export default defineConfig({
     // 로컬 dev(vite :5173)에서 백엔드(:8080)로 WebSocket 프록시
     proxy: {
       '/ws': { target: 'http://localhost:8080', ws: true, changeOrigin: true },
+      '/api': { target: 'http://localhost:8080', changeOrigin: true },
     },
   },
 });

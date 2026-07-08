@@ -20,11 +20,50 @@ function Card({ code, faceDown, delay = 0, flip }) {
   const rank = code.slice(0, -1);
   const suit = code.slice(-1);
   const red = suit === 'h' || suit === 'd';
+  const sym = SUIT[suit] || suit;
   return (
     <span className={`card ${red ? 'red' : 'black'} ${flip ? 'flip' : ''}`}
-      style={{ animationDelay: `${delay}ms` }}>
+      data-suit={sym} style={{ animationDelay: `${delay}ms` }}>
       <b>{rank}</b>
-      <span className="pip">{SUIT[suit] || suit}</span>
+      <span className="pip">{sym}</span>
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ 아바타 — id 해시로 색을 고정 배정 */
+function hueOf(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+function Avatar({ id, name, mini }) {
+  const isBot = id.startsWith('ai-');
+  const hue = hueOf(id);
+  const style = isBot
+    ? { background: 'linear-gradient(160deg, #55617a, #2c3547)' }
+    : { background: `linear-gradient(160deg, hsl(${hue} 62% 52%), hsl(${(hue + 40) % 360} 65% 34%))` };
+  const label = isBot ? '🤖' : (name || id).trim().charAt(0).toUpperCase();
+  return <span className={mini ? 'mini-avatar' : 'avatar'} style={style}>{label}</span>;
+}
+
+/* ------------------------------------------------------------------ 칩 스택 — 금액을 칩 색으로 환산 */
+const DENOMS = [
+  [1000, 'd1000'], [500, 'd500'], [100, 'd100'], [25, 'd25'], [5, 'd5'], [1, 'd1'],
+];
+function chipsFor(amount, cap = 4) {
+  const out = [];
+  let left = amount;
+  for (const [v, cls] of DENOMS) {
+    while (left >= v && out.length < cap) { out.push(cls); left -= v; }
+    if (out.length >= cap) break;
+  }
+  if (out.length === 0) out.push('d1');
+  return out;
+}
+function ChipStack({ amount, cap }) {
+  return (
+    <span className="chip-stack">
+      {chipsFor(amount, cap).map((cls, i) => <span key={i} className={`chip ${cls}`} />)}
     </span>
   );
 }
@@ -55,29 +94,32 @@ function TimerRing({ actorId, seconds, total = 30 }) {
 }
 
 /* ------------------------------------------------------------------ 좌석(테이블 둘레에 배치) */
-function Seat({ seat, isViewer, pos, secondsLeft, actorId, isWinner, spied }) {
+function Seat({ seat, isViewer, pos, secondsLeft, actorId, isWinner, winAmount, spied }) {
   const cards = seat.holeCards
     ? seat.holeCards.map((c, i) => <Card key={i} code={c} flip delay={i * 90} />)
     : (seat.status !== 'FOLDED' ? [<Card key="a" faceDown />, <Card key="b" faceDown />] : null);
-  const isBot = seat.playerId.startsWith('ai-');
   return (
     <div className={`seat ${seat.currentActor ? 'acting' : ''} ${seat.status === 'FOLDED' ? 'folded' : ''} ${isWinner ? 'winner' : ''} ${spied ? 'spied' : ''}`}
       style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
       {seat.currentActor && actorId && (
         <div className="seat-timer"><TimerRing actorId={actorId} seconds={secondsLeft} /></div>
       )}
+      {isWinner && winAmount > 0 && <div className="win-amount">+{winAmount}</div>}
       {spied && <div className="spy-tag" title="전지적 관찰자 시점으로 공개된 카드">👁</div>}
       <div className="seat-cards">{cards}</div>
       <div className="seat-plate">
-        <div className="seat-name">
-          {seat.button && <span className="dealer">D</span>}
-          {isBot && <span title="AI 상대">🤖</span>}
-          {seat.name}{isViewer ? ' (나)' : ''}
+        {seat.button && <span className="dealer" title="딜러 버튼">D</span>}
+        <Avatar id={seat.playerId} name={seat.name} />
+        <div className="plate-info">
+          <div className="seat-name">{seat.name}{isViewer ? ' (나)' : ''}</div>
+          <div className="seat-stack">{seat.stack.toLocaleString()}</div>
         </div>
-        <div className="seat-stack"><span className="chip-ico" />{seat.stack}</div>
       </div>
       {seat.committedThisStreet > 0 && (
-        <div className={`seat-bet bet-${betSide(pos)}`}><span className="chip-ico sm" />{seat.committedThisStreet}</div>
+        <div className={`seat-bet bet-${betSide(pos)}`}>
+          <ChipStack amount={seat.committedThisStreet} cap={3} />
+          {seat.committedThisStreet.toLocaleString()}
+        </div>
       )}
       {seat.status === 'FOLDED' && <div className="fold-tag">FOLD</div>}
     </div>
@@ -102,30 +144,76 @@ function seatPositions(n) {
   return out;
 }
 
-/* ------------------------------------------------------------------ 액션바 */
-function ActionBar({ state, act }) {
+/* ------------------------------------------------------------------ 액션바(퀵 사이즈 + 슬라이더) */
+function ActionBar({ state, mySeat, act }) {
   const legal = new Set(state.viewerLegalActions || []);
   const [amount, setAmount] = useState('');
   const canRaise = legal.has('RAISE');
   const canBet = legal.has('BET');
-  const defaultTo = state.viewerMinRaiseTo || 0;
+  const minTo = state.viewerMinRaiseTo || 0;
+  const toCall = state.viewerToCall || 0;
+  const committed = mySeat?.committedThisStreet || 0;
+  // 올인 상한: 내 스택 + 이번 스트리트에 이미 넣은 금액(레이즈 to 표기 기준)
+  const maxTo = mySeat ? mySeat.stack + committed : minTo;
   // 입력칸은 자유롭게 지우고 다시 쓸 수 있어야 한다 — 빈 값이면 전송 시에만 최소 금액으로 대체.
-  const amt = amount === '' ? defaultTo : Number(amount);
-  const submit = (type) => { act(type, amt); setAmount(''); };
+  const amt = amount === '' ? minTo : Number(amount);
+  const clamped = Math.max(minTo, Math.min(maxTo, amt));
+  const submit = (type) => { act(type, clamped); setAmount(''); };
+
+  // 팟 비율 퀵 사이즈: 콜을 받은 뒤 팟 기준(팟 레이즈 공식 근사).
+  const quick = (frac) => {
+    const potAfterCall = state.pot + toCall;
+    const target = canRaise
+      ? committed + toCall + Math.round(potAfterCall * frac)
+      : Math.round(state.pot * frac);
+    setAmount(String(Math.max(minTo, Math.min(maxTo, target))));
+  };
+  const fillPct = maxTo > minTo ? ((clamped - minTo) / (maxTo - minTo)) * 100 : 100;
 
   if (legal.size === 0) return null;
   return (
     <div className="actionbar">
-      {legal.has('FOLD') && <button className="act fold" onClick={() => act('FOLD')}>폴드</button>}
-      {legal.has('CHECK') && <button className="act check" onClick={() => act('CHECK')}>체크</button>}
-      {legal.has('CALL') && <button className="act call" onClick={() => act('CALL')}>콜 <b>{state.viewerToCall}</b></button>}
+      <div className="ab-buttons">
+        {legal.has('FOLD') && (
+          <button className="act fold" onClick={() => act('FOLD')}><small>FOLD</small>폴드</button>
+        )}
+        {legal.has('CHECK') && (
+          <button className="act check" onClick={() => act('CHECK')}><small>CHECK</small>체크</button>
+        )}
+        {legal.has('CALL') && (
+          <button className="act call" onClick={() => act('CALL')}>
+            <small>CALL</small>콜 <b>{state.viewerToCall.toLocaleString()}</b>
+          </button>
+        )}
+        {canBet && (
+          <button className="act raise" onClick={() => submit('BET')}>
+            <small>BET</small>벳 <b>{clamped.toLocaleString()}</b>
+          </button>
+        )}
+        {canRaise && (
+          <button className="act raise" onClick={() => submit('RAISE')}>
+            <small>RAISE TO</small>레이즈 <b>{clamped.toLocaleString()}</b>
+          </button>
+        )}
+      </div>
+
       {(canBet || canRaise) && (
-        <span className="raise-group">
-          <input type="number" value={amount} placeholder={String(defaultTo)}
-            min={defaultTo} onChange={(e) => setAmount(e.target.value)} />
-          {canBet && <button className="act raise" onClick={() => submit('BET')}>벳 {amt}</button>}
-          {canRaise && <button className="act raise" onClick={() => submit('RAISE')}>레이즈 to {amt}</button>}
-        </span>
+        <div className="bet-controls">
+          <div className="bet-quick">
+            <button onClick={() => setAmount(String(minTo))}>최소</button>
+            <button onClick={() => quick(0.5)}>½ 팟</button>
+            <button onClick={() => quick(2 / 3)}>⅔ 팟</button>
+            <button onClick={() => quick(1)}>팟</button>
+            <button onClick={() => setAmount(String(maxTo))}>올인</button>
+          </div>
+          <div className="bet-slider-row">
+            <input type="range" min={minTo} max={maxTo} value={clamped}
+              style={{ '--fill': `${fillPct}%` }}
+              onChange={(e) => setAmount(e.target.value)} />
+            <input className="bet-amount-input" type="number" value={amount} placeholder={String(minTo)}
+              min={minTo} max={maxTo} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+        </div>
       )}
     </div>
   );
@@ -174,7 +262,7 @@ function Leaderboard() {
   if (rows.length === 0) return null;
   return (
     <div className="leaderboard">
-      <b>ROI 리더보드</b>
+      <div className="panel-title">ROI 리더보드</div>
       <table>
         <thead>
           <tr><th>#</th><th>플레이어</th><th>net</th><th>핸드</th><th>승</th><th>VPIP</th><th>PFR</th></tr>
@@ -182,7 +270,7 @@ function Leaderboard() {
         <tbody>
           {rows.map((r, i) => (
             <tr key={r.playerId}>
-              <td>{i + 1}</td>
+              <td className={i === 0 ? 'rank-1' : ''}>{i + 1}</td>
               <td>{r.name || r.playerId}</td>
               <td className={r.netProfit >= 0 ? 'pos' : 'neg'}>{r.netProfit >= 0 ? '+' : ''}{r.netProfit}</td>
               <td>{r.handsPlayed}</td>
@@ -345,7 +433,7 @@ function ReplayPanel({ onClose }) {
 
       {session.length > 0 && (
         <div className="session-report">
-          <b>세션 누적 리포트</b>
+          <div className="panel-title">세션 누적 리포트</div>
           <table>
             <thead>
               <tr><th>플레이어</th><th>판정 지점</th><th>실수</th><th>EV 손실 합</th><th>최다 유형</th></tr>
@@ -371,7 +459,7 @@ function ReplayPanel({ onClose }) {
 }
 
 /* ------------------------------------------------------------------ 플레이어 추가 + 저장된 플레이어 */
-function PlayerAdder({ onAdd, seatedIds, saved, onForget, compact }) {
+function PlayerAdder({ onAdd, seatedIds, saved, onForget }) {
   const [id, setId] = useState('');
   const [name, setName] = useState('');
   const submit = () => {
@@ -383,13 +471,7 @@ function PlayerAdder({ onAdd, seatedIds, saved, onForget, compact }) {
   const onEnter = (e) => e.key === 'Enter' && submit();
   const available = saved.filter((s) => !seatedIds.includes(s.id));
   return (
-    <div className={compact ? 'add-inline' : 'login'}>
-      {!compact && (
-        <>
-          <h1>♠ 홈포커 <span className="thin">테이블 t1</span></h1>
-          <p>혼자서 여러 명을 앉혀 진행하는 로컬 테스트. 플레이어를 추가하세요(2명+면 시작 가능).</p>
-        </>
-      )}
+    <div className="add-inline">
       {available.length > 0 && (
         <div className="saved-players">
           <span className="saved-label">저장된 플레이어</span>
@@ -413,6 +495,15 @@ function PlayerAdder({ onAdd, seatedIds, saved, onForget, compact }) {
 }
 
 /* ------------------------------------------------------------------ 홈(랜딩) */
+const FEATURES = [
+  { icon: '📈', title: '실시간 이퀴티', desc: '내 홀카드 기준 몬테카를로 승률을 매 스트리트 실시간으로 표시합니다.' },
+  { icon: '🧠', title: 'EV 손실 복기', desc: '핸드가 끝나면 콜·폴드 실수를 자동 감지해 EV 손실을 bb 단위로 수치화합니다.' },
+  { icon: '🤖', title: 'AI 상대', desc: '프리플랍 차트와 이퀴티 vs 팟오즈로 판단하는 봇과 언제든 실전처럼 연습하세요.' },
+  { icon: '🔒', title: '검증 가능한 셔플', desc: '딜 전 SHA-256 커밋을 공개하고, 종료 후 브라우저가 직접 재계산해 검증합니다.' },
+  { icon: '⏱️', title: '타임뱅크', desc: '액션 30초 제한. 초과하면 자동 체크/폴드로 게임이 멈추지 않습니다.' },
+  { icon: '📊', title: 'ROI 리더보드', desc: 'VPIP·PFR·순수익을 집계해 세션이 끝나도 남는 전적을 만듭니다.' },
+];
+
 function HomePage({ onAdd, seatedIds, saved, onForget, onEnter, playerCount }) {
   const [lobby, setLobby] = useState([]);
   useEffect(() => {
@@ -423,35 +514,51 @@ function HomePage({ onAdd, seatedIds, saved, onForget, onEnter, playerCount }) {
   }, []);
   return (
     <div className="login home">
-      <h1>♠ 홈포커</h1>
-      <p>친구들과 하는 실시간 홈게임 + 이퀴티·복기·AI 상대까지 붙은 학습용 포커 테이블.</p>
+      <div className="hero-logo">
+        <span className="hero-mark">♠</span>
+        <h1>홈포커</h1>
+      </div>
+      <p className="tagline">
+        친구들과 즐기는 실시간 <b>노리밋 홀덤</b> — 이퀴티·복기·AI 상대까지 붙은
+        학습용 포커 테이블입니다.
+      </p>
+
       <div className="home-features">
-        <span>📈 실시간 이퀴티</span><span>🧠 EV 손실 복기</span>
-        <span>🤖 AI 상대</span><span>🔒 검증 가능한 셔플</span>
+        {FEATURES.map((f) => (
+          <div key={f.title} className="feature-card">
+            <span className="fc-icon">{f.icon}</span>
+            <b>{f.title}</b>
+            <p>{f.desc}</p>
+          </div>
+        ))}
       </div>
 
-      <PlayerAdder onAdd={onAdd} seatedIds={seatedIds} saved={saved} onForget={onForget} compact />
-
-      {playerCount > 0 && (
-        <button className="primary enter-btn" onClick={onEnter}>
-          🎲 테이블 입장 — {playerCount}명 착석 중
-        </button>
-      )}
+      <div className="home-panel">
+        <div className="hp-title">게임 참가</div>
+        <div className="hp-sub">플레이어를 착석시키면 자동으로 테이블에 입장합니다 (2명 이상이면 시작 가능).</div>
+        <PlayerAdder onAdd={onAdd} seatedIds={seatedIds} saved={saved} onForget={onForget} />
+        {playerCount > 0 && (
+          <button className="primary enter-btn" onClick={onEnter}>
+            🎲 테이블 입장 — {playerCount}명 착석 중
+          </button>
+        )}
+      </div>
 
       {lobby.length > 0 && (
         <div className="home-lobby">
-          <b>테이블 로비</b>
+          <div className="panel-title hp-title">테이블 로비</div>
           <table>
             <thead>
-              <tr><th>테이블</th><th>블라인드</th><th>착석</th><th>상태</th><th>진행 핸드</th></tr>
+              <tr><th>테이블</th><th>게임</th><th>블라인드</th><th>착석</th><th>상태</th><th>진행 핸드</th></tr>
             </thead>
             <tbody>
               {lobby.map((t) => (
                 <tr key={t.tableId}>
                   <td>{t.tableId}</td>
+                  <td>홀덤 · 노리밋</td>
                   <td>{t.smallBlind}/{t.bigBlind}</td>
                   <td>{t.seatedCount}명</td>
-                  <td>{t.handInProgress ? '🟢 진행 중' : '대기'}</td>
+                  <td>{t.handInProgress ? <span className="live">● 진행 중</span> : '대기'}</td>
                   <td>{t.handsPlayed}</td>
                 </tr>
               ))}
@@ -459,7 +566,9 @@ function HomePage({ onAdd, seatedIds, saved, onForget, onEnter, playerCount }) {
           </table>
         </div>
       )}
-      <p className="muted home-hint">플레이어를 착석시키면 자동으로 테이블에 입장합니다.</p>
+      <div className="home-footer">
+        ♠ 홈포커 — 학습용 홀덤 클라이언트 · 실제 돈이 오가지 않습니다 · 커밋-리빌 셔플 검증 지원
+      </div>
     </div>
   );
 }
@@ -475,6 +584,7 @@ export default function App() {
   const [godMode, setGodMode] = useState(false);
   const [godSeats, setGodSeats] = useState(null); // playerId -> holeCards (전지적 뷰)
   const [showBotLog, setShowBotLog] = useState(false);
+  const [blinds, setBlinds] = useState(null); // {smallBlind, bigBlind}
 
   // 착석 시 저장 목록에 추가(중복 제거).
   const addAndSave = (id, name) => {
@@ -494,6 +604,13 @@ export default function App() {
   const actorId = state?.handInProgress ? state.currentActorId : null;
   const done = state && !state.handInProgress;
   const payouts = state?.payouts || {};
+
+  // 헤더에 표시할 블라인드 정보(로비 API에서 1회 로드).
+  useEffect(() => {
+    fetch('/api/tables').then((r) => r.json())
+      .then((list) => setBlinds(list.find((t) => t.tableId === 't1') || list[0] || null))
+      .catch(() => {});
+  }, []);
 
   // 핸드 시작/종료 시 현재 셔플 커밋 해시를 갱신(시작 전 공개 = 조작 불가 증명의 앞단).
   const inProgress = state?.handInProgress ?? false;
@@ -557,9 +674,19 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <span className="logo">♠ 홈포커</span>
-        <span className={`dot ${connected[activeId] ? 'on' : 'off'}`} />
-        <span className="whoami"><b>{activeId}</b>(으)로 플레이 중</span>
+        <span className="brand">
+          <span className="brand-mark">♠</span>
+          <span className="brand-word"><b>홈포커</b><span>Hold'em</span></span>
+        </span>
+        <span className="table-meta">
+          <b>텍사스 홀덤 · 노리밋</b>
+          <span>{blinds ? `블라인드 ${blinds.smallBlind}/${blinds.bigBlind} · ` : ''}테이블 t1</span>
+        </span>
+        <span className="whoami">
+          <Avatar id={activeId} name={activeId} mini />
+          <b>{activeId}</b>
+          <span className={`dot ${connected[activeId] ? 'on' : 'off'}`} />
+        </span>
         <span className="hbtns">
           <button className="ghost" onClick={() => setScreen('home')}
             title="홈 화면으로(연결·게임 상태는 유지됩니다)">🏠 홈</button>
@@ -591,15 +718,16 @@ export default function App() {
             <span key={p.id}
               className={`pchip ${p.id === activeId ? 'active' : ''} ${p.id === actorId ? 'toact' : ''}`}
               onClick={() => setPicked(p.id)}>
-              <span className={`dot ${connected[p.id] ? 'on' : 'off'}`} />
+              <Avatar id={p.id} name={p.name} mini />
               {p.name}
+              <span className={`dot ${connected[p.id] ? 'on' : 'off'}`} />
               {p.id === actorId && <span className="turn-badge">차례</span>}
               <button className="x" title="퇴장"
                 onClick={(e) => { e.stopPropagation(); removePlayer(p.id); }}>×</button>
             </span>
           ))}
         </div>
-        <PlayerAdder onAdd={addAndSave} seatedIds={seatedIds} saved={saved} onForget={forget} compact />
+        <PlayerAdder onAdd={addAndSave} seatedIds={seatedIds} saved={saved} onForget={forget} />
         <div className="bot-controls">
           <button className="ghost sm" onClick={addBot}
             title="서버가 알아서 플레이하는 AI 상대를 앉힙니다(이퀴티 vs 팟오즈 기반)">🤖 AI 상대 추가</button>
@@ -627,6 +755,10 @@ export default function App() {
             <div className="poker-table">
               <div className="rail" />
               <div className="felt">
+                <div className="felt-brand">
+                  <span className="fb-suit">♠</span>
+                  <span className="fb-word">HOME POKER</span>
+                </div>
                 <div className="table-center">
                   <div className="street-badge">{translateStreet(state.street)}</div>
                   <div className="board">
@@ -634,7 +766,10 @@ export default function App() {
                       ? <span className="board-empty">— 보드 —</span>
                       : state.board.map((c, i) => <Card key={c} code={c} flip delay={i * 120} />)}
                   </div>
-                  <div className="pot"><span className="chip-ico" />팟 <b>{state.pot}</b></div>
+                  <div className="pot">
+                    <ChipStack amount={state.pot} cap={4} />
+                    <span className="pot-label">POT</span><b>{state.pot.toLocaleString()}</b>
+                  </div>
                   {state.viewerEquity != null && (
                     <div className="equity" title="내 홀카드 기준 몬테카를로 승률">
                       내 승률 {Math.round(state.viewerEquity * 100)}%
@@ -656,7 +791,8 @@ export default function App() {
                     <Seat key={s.playerId} seat={seat} pos={positions[i]}
                       isViewer={s.playerId === activeId} spied={spied}
                       secondsLeft={state.turnSecondsLeft} actorId={actorId}
-                      isWinner={done && payouts[s.playerId] > 0} />
+                      isWinner={done && payouts[s.playerId] > 0}
+                      winAmount={payouts[s.playerId] || 0} />
                   );
                 })}
               </div>
@@ -665,7 +801,8 @@ export default function App() {
 
           {state.handInProgress && (
             actorId === activeId
-              ? <ActionBar state={state} act={(type, amount) => act(activeId, type, amount)} />
+              ? <ActionBar state={state} mySeat={mySeat}
+                  act={(type, amount) => act(activeId, type, amount)} />
               : <div className="turn-hint">
                   <TimerRing actorId={actorId} seconds={state.turnSecondsLeft} />
                   {actorId?.startsWith('ai-')
@@ -679,7 +816,7 @@ export default function App() {
           {done && Object.keys(payouts).length > 0 && (
             <div className="result">
               🏆 {Object.entries(payouts).filter(([, a]) => a > 0)
-                .map(([id, amt]) => `${id} +${amt}`).join(' · ')}
+                .map(([id, amt]) => <span key={id} className="win-name">{id} +{amt} </span>)}
             </div>
           )}
 
