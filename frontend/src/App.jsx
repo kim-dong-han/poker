@@ -1,7 +1,31 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { usePokerTable } from './usePokerTable.js';
 
 const SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
+
+/* ------------------------------------------------------------------ 효과음 (WebAudio 합성 — 파일 불필요) */
+let audioCtx = null;
+function playTone(freq, dur = 0.09, type = 'sine', gain = 0.05, when = 0) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    const t0 = audioCtx.currentTime + when;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(gain, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g); g.connect(audioCtx.destination);
+    osc.start(t0); osc.stop(t0 + dur + 0.02);
+  } catch { /* 오디오 미지원/차단 시 무시 */ }
+}
+const SFX = {
+  myTurn: () => { playTone(880, 0.09, 'sine', 0.06); playTone(1318, 0.13, 'sine', 0.05, 0.1); },
+  deal: () => playTone(300, 0.05, 'triangle', 0.045),
+  chip: () => { playTone(1600, 0.035, 'square', 0.02); playTone(2100, 0.03, 'square', 0.015, 0.045); },
+  win: () => [523, 659, 784, 1047].forEach((f, i) => playTone(f, 0.15, 'sine', 0.05, i * 0.09)),
+};
 
 /* ------------------------------------------------------------------ 저장된 플레이어(localStorage) */
 const SAVED_KEY = 'homepoker.players';
@@ -99,7 +123,7 @@ function Seat({ seat, isViewer, pos, secondsLeft, actorId, isWinner, winAmount, 
     ? seat.holeCards.map((c, i) => <Card key={i} code={c} flip delay={i * 90} />)
     : (seat.status !== 'FOLDED' ? [<Card key="a" faceDown />, <Card key="b" faceDown />] : null);
   return (
-    <div className={`seat ${seat.currentActor ? 'acting' : ''} ${seat.status === 'FOLDED' ? 'folded' : ''} ${isWinner ? 'winner' : ''} ${spied ? 'spied' : ''}`}
+    <div className={`seat ${isViewer ? 'me' : ''} ${seat.currentActor ? 'acting' : ''} ${seat.status === 'FOLDED' ? 'folded' : ''} ${isWinner ? 'winner' : ''} ${spied ? 'spied' : ''}`}
       style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
       {seat.currentActor && actorId && (
         <div className="seat-timer"><TimerRing actorId={actorId} seconds={secondsLeft} /></div>
@@ -182,7 +206,7 @@ function ActionBar({ state, mySeat, act }) {
         )}
         {legal.has('CALL') && (
           <button className="act call" onClick={() => act('CALL')}>
-            <small>CALL</small>콜 <b>{state.viewerToCall.toLocaleString()}</b>
+            <small>CALL</small>콜 <b>{(state.viewerToCall ?? 0).toLocaleString()}</b>
           </button>
         )}
         {canBet && (
@@ -585,6 +609,14 @@ export default function App() {
   const [godSeats, setGodSeats] = useState(null); // playerId -> holeCards (전지적 뷰)
   const [showBotLog, setShowBotLog] = useState(false);
   const [blinds, setBlinds] = useState(null); // {smallBlind, bigBlind}
+  const [sound, setSound] = useState(() => {
+    try { return localStorage.getItem('homepoker.sound') !== 'off'; } catch { return true; }
+  });
+  const toggleSound = () => setSound((v) => {
+    const n = !v;
+    try { localStorage.setItem('homepoker.sound', n ? 'on' : 'off'); } catch { /* 무시 */ }
+    return n;
+  });
 
   // 착석 시 저장 목록에 추가(중복 제거).
   const addAndSave = (id, name) => {
@@ -633,6 +665,19 @@ export default function App() {
     const t = setInterval(load, 1200); // 남은 판의 진행(새 카드 딜)을 따라간다
     return () => { live = false; clearInterval(t); };
   }, [godMode, canGodView, state?.street, state?.currentActorId]);
+
+  // 게임 이벤트 효과음: 내 차례 알림 / 새 보드 카드 딜 / 내 승리 팡파르.
+  const sfxPrev = useRef({ actor: null, boardLen: 0, done: false });
+  const boardLen = state?.board?.length ?? 0;
+  useEffect(() => {
+    const prev = sfxPrev.current;
+    if (sound && state) {
+      if (inProgress && actorId === activeId && prev.actor !== activeId) SFX.myTurn();
+      if (boardLen > prev.boardLen && boardLen > 0) SFX.deal();
+      if (done && !prev.done && (payouts[activeId] || 0) > 0) SFX.win();
+    }
+    sfxPrev.current = { actor: actorId, boardLen, done: !!done };
+  }, [actorId, boardLen, done]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addBot = () => fetch('/api/tables/t1/bots', { method: 'POST' }).catch(() => {});
   const removeBot = () => fetch('/api/tables/t1/bots', { method: 'DELETE' }).catch(() => {});
@@ -688,6 +733,9 @@ export default function App() {
           <span className={`dot ${connected[activeId] ? 'on' : 'off'}`} />
         </span>
         <span className="hbtns">
+          <button className="ghost" onClick={toggleSound} title="효과음 켜기/끄기">
+            {sound ? '🔊' : '🔇'}
+          </button>
           <button className="ghost" onClick={() => setScreen('home')}
             title="홈 화면으로(연결·게임 상태는 유지됩니다)">🏠 홈</button>
           {canGodView && (
@@ -747,7 +795,9 @@ export default function App() {
       </div>
 
       {error && <div className="error">⚠ {error}</div>}
-      {!state && <div className="muted center">연결 중…</div>}
+      {!state && (
+        <div className="muted center connecting"><span className="spinner" />테이블에 연결 중…</div>
+      )}
 
       {state && (
         <main>
@@ -760,7 +810,9 @@ export default function App() {
                   <span className="fb-word">HOME POKER</span>
                 </div>
                 <div className="table-center">
-                  <div className="street-badge">{translateStreet(state.street)}</div>
+                  <div className={`street-badge st-${(state.street || '').toLowerCase()}`}>
+                    {translateStreet(state.street)}
+                  </div>
                   <div className="board">
                     {state.board.length === 0
                       ? <span className="board-empty">— 보드 —</span>
@@ -802,7 +854,7 @@ export default function App() {
           {state.handInProgress && (
             actorId === activeId
               ? <ActionBar state={state} mySeat={mySeat}
-                  act={(type, amount) => act(activeId, type, amount)} />
+                  act={(type, amount) => { if (sound) SFX.chip(); act(activeId, type, amount); }} />
               : <div className="turn-hint">
                   <TimerRing actorId={actorId} seconds={state.turnSecondsLeft} />
                   {actorId?.startsWith('ai-')
