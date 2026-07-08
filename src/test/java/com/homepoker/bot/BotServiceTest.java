@@ -82,6 +82,35 @@ class BotServiceTest {
         assertEquals("me", table.engine().playerToAct().id());
     }
 
+    // 봇 액션마다 판단 근거가 남고, 진행 중 핸드의 것은 god=true 없이는 보이지 않는다.
+    @Test
+    void reasonsRecordedAndCurrentHandHiddenUntilComplete() {
+        TableService tableService = newTableService();
+        BotService botService = newBotService(tableService);
+        botService.addBot("t1");
+        botService.addBot("t1");
+        tableService.startHand("t1");
+
+        Table table = tableService.getOrCreate("t1");
+        int guard = 0;
+        while (table.handInProgress()) {
+            if (guard++ > 300) {
+                throw new AssertionError("봇 핸드가 끝나지 않음");
+            }
+            boolean acted = botService.actIfBotTurn("t1");
+            if (acted && table.handInProgress()) {
+                assertTrue(botService.reasons("t1", false).isEmpty(),
+                        "진행 중 핸드의 판단 근거는 숨겨야 함(봇 핸드 강도 유출)");
+                assertFalse(botService.reasons("t1", true).isEmpty(),
+                        "전지적(god) 요청이면 진행 중에도 보임");
+            }
+        }
+        var all = botService.reasons("t1", false);
+        assertFalse(all.isEmpty(), "핸드 종료 후에는 전부 공개");
+        assertTrue(all.stream().allMatch(a -> a.reason() != null && !a.reason().isBlank()));
+        assertTrue(all.stream().allMatch(a -> a.handNo() == 1));
+    }
+
     // 핸드 진행 중엔 AI 제거 불가, 종료 후엔 가능.
     @Test
     void removeBotOnlyBetweenHands() {

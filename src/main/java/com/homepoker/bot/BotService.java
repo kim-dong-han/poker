@@ -6,6 +6,8 @@ import com.homepoker.table.TableService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -36,6 +38,17 @@ public class BotService {
     private final Map<String, Set<String>> botsByTable = new ConcurrentHashMap<>();
     /** 테이블별 봇이 액션하기로 예약된 시각(epoch ms) — 생각 지연 구현. */
     private final Map<String, Long> actAt = new ConcurrentHashMap<>();
+
+    /**
+     * 봇이 실제로 한 액션과 판단 근거(이퀴티 vs 팟오즈). 학습·복기용 기록.
+     * reason 에 봇 이퀴티가 드러나므로 진행 중 핸드의 것은 reasons() 에서 기본적으로 걸러낸다.
+     */
+    public record BotAction(String botId, String name, int handNo, String street,
+                            String action, long amount, String reason) {}
+
+    private static final int REASON_LOG_LIMIT = 200;
+    /** 테이블별 봇 액션 기록(시간순, 오래된 것부터). 접근은 Table 모니터 안에서만. */
+    private final Map<String, Deque<BotAction>> reasonLog = new ConcurrentHashMap<>();
 
     public BotService(TableService tableService, BotBrain brain,
                       @Value("${poker.bot.think-ms:900}") long thinkMillis) {
@@ -110,9 +123,32 @@ public class BotService {
                 return false;
             }
             actAt.remove(tableId);
+            String street = table.engine().street().name();
+            int handNo = table.handsPlayed();
             BotBrain.Decision d = brain.decide(table.engine(), actor.id());
             tableService.applyAction(tableId, actor.id(), d.type(), d.amount());
+            Deque<BotAction> log = reasonLog.computeIfAbsent(tableId, k -> new ArrayDeque<>());
+            log.addLast(new BotAction(actor.id(), actor.name(), handNo, street,
+                    d.type(), d.amount(), d.reason()));
+            while (log.size() > REASON_LOG_LIMIT) {
+                log.removeFirst();
+            }
             return true;
+        }
+    }
+
+    /**
+     * 봇 액션 기록(시간순). 진행 중 핸드의 것은 봇 핸드 강도가 새므로 기본 제외 —
+     * includeCurrentHand 는 전지적 관찰(godview)과 같은 신뢰 수준에서만 켠다.
+     */
+    public List<BotAction> reasons(String tableId, boolean includeCurrentHand) {
+        Table table = tableService.getOrCreate(tableId);
+        synchronized (table) {
+            boolean hideCurrent = table.handInProgress() && !includeCurrentHand;
+            int currentHand = table.handsPlayed();
+            return reasonLog.getOrDefault(tableId, new ArrayDeque<>()).stream()
+                    .filter(a -> !hideCurrent || a.handNo() != currentHand)
+                    .toList();
         }
     }
 

@@ -131,6 +131,37 @@ function ActionBar({ state, act }) {
   );
 }
 
+/* ------------------------------------------------------------------ AI 판단 로그 */
+const ACTION_KO = { FOLD: '폴드', CHECK: '체크', CALL: '콜', BET: '벳', RAISE: '레이즈' };
+
+function BotReasonPanel({ god }) {
+  const [rows, setRows] = useState([]);
+  useEffect(() => {
+    const load = () => fetch(`/api/tables/t1/bots/reasons?god=${god}`)
+      .then((r) => r.json()).then(setRows).catch(() => {});
+    load();
+    const t = setInterval(load, 2000);
+    return () => clearInterval(t);
+  }, [god]);
+  const last = rows.slice(-12); // 최근 12개만(시간순)
+  return (
+    <div className="bot-reasons">
+      {last.length === 0 && (
+        <div className="muted sm-note">아직 공개된 AI 판단이 없습니다 — 진행 중 핸드의 판단은
+          종료 후(또는 👁 관전 중) 공개됩니다.</div>
+      )}
+      {last.map((a, i) => (
+        <div key={i} className="bot-reason-row">
+          <span className="br-meta">#{a.handNo} {translateStreet(a.street)}</span>
+          <b>🤖 {a.name}</b>
+          <span className="br-act">{ACTION_KO[a.action] || a.action}{a.amount > 0 ? ` ${a.amount}` : ''}</span>
+          <span className="br-why">{a.reason}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ 리더보드 */
 function Leaderboard() {
   const [rows, setRows] = useState([]);
@@ -390,6 +421,7 @@ export default function App() {
   const [commitment, setCommitment] = useState(null);
   const [godMode, setGodMode] = useState(false);
   const [godSeats, setGodSeats] = useState(null); // playerId -> holeCards (전지적 뷰)
+  const [showBotLog, setShowBotLog] = useState(false);
 
   // 착석 시 저장 목록에 추가(중복 제거).
   const addAndSave = (id, name) => {
@@ -513,8 +545,16 @@ export default function App() {
           {hasBots && !inProgress && (
             <button className="ghost sm" onClick={removeBot}>AI 제거</button>
           )}
+          {hasBots && (
+            <button className={`ghost sm ${showBotLog ? 'god-on' : ''}`}
+              onClick={() => setShowBotLog((v) => !v)}
+              title="AI 가 왜 그렇게 행동했는지(이퀴티 vs 팟오즈 근거) 봅니다. 진행 중 핸드는 종료 후 공개">
+              🧠 AI 판단 로그
+            </button>
+          )}
           {hasBots && <span className="muted sm-note">AI 는 자기 차례에 자동으로 액션합니다</span>}
         </div>
+        {hasBots && showBotLog && <BotReasonPanel god={godMode && canGodView} />}
       </div>
 
       {error && <div className="error">⚠ {error}</div>}

@@ -31,8 +31,12 @@ public class BotBrain {
     static final double RAISE_MARGIN = 0.25;    // 필요이퀴티보다 이만큼 높으면 레이즈
     static final double JITTER = 0.03;          // 임계값 ±지터(예측 불가성)
 
-    /** 봇이 취할 액션. amount 는 BET/RAISE 일 때만 의미(raise-to 방식). */
-    public record Decision(String type, long amount) {}
+    /**
+     * 봇이 취할 액션. amount 는 BET/RAISE 일 때만 의미(raise-to 방식).
+     * reason 은 판단 근거(이퀴티 vs 기준)를 사람이 읽을 수 있게 요약한 것 —
+     * 봇 홀카드 강도가 드러나므로 핸드 진행 중에는 클라이언트에 내보내지 않는다.
+     */
+    public record Decision(String type, long amount, String reason) {}
 
     private final EquityService equityService;
 
@@ -65,26 +69,40 @@ public class BotBrain {
 
         if (toCall == 0) {
             // 공짜 지점: 강하면 밸류벳/레이즈(BB 옵션), 아니면 체크
-            if (equity > BET_THRESHOLD + jitter) {
+            double valueBar = BET_THRESHOLD + jitter;
+            if (equity > valueBar) {
                 if (legal.contains(ActionType.BET)) {
-                    return new Decision("BET", clampBet(engine, me, pot * 2 / 3));
+                    return new Decision("BET", clampBet(engine, me, pot * 2 / 3),
+                            "이퀴티 %s%% > 밸류벳 기준 %s%% → 팟 2/3 벳".formatted(pct(equity), pct(valueBar)));
                 }
                 if (legal.contains(ActionType.RAISE)) {
-                    return new Decision("RAISE", clampRaise(engine, me, engine.minRaiseTo()));
+                    return new Decision("RAISE", clampRaise(engine, me, engine.minRaiseTo()),
+                            "이퀴티 %s%% > 밸류벳 기준 %s%% → 레이즈(BB 옵션)".formatted(pct(equity), pct(valueBar)));
                 }
             }
-            return new Decision("CHECK", 0);
+            return new Decision("CHECK", 0,
+                    "공짜로 볼 수 있고 이퀴티 %s%% ≤ 밸류벳 기준 %s%% → 체크".formatted(pct(equity), pct(valueBar)));
         }
 
         double required = (double) toCall / (pot + toCall);
         if (equity < required - FOLD_MARGIN + jitter) {
-            return new Decision("FOLD", 0);
+            return new Decision("FOLD", 0,
+                    "이퀴티 %s%% < 필요이퀴티 %s%%(콜 %d/팟 %d) − 마진 → 폴드"
+                            .formatted(pct(equity), pct(required), toCall, pot));
         }
         if (equity > required + RAISE_MARGIN + jitter && legal.contains(ActionType.RAISE)) {
             // 팟 크기만큼 올리기(최소 레이즈 미만이면 최소 레이즈로, 스택 초과면 올인)
-            return new Decision("RAISE", clampRaise(engine, me, engine.currentBet() + pot));
+            return new Decision("RAISE", clampRaise(engine, me, engine.currentBet() + pot),
+                    "이퀴티 %s%% ≫ 필요이퀴티 %s%% + 레이즈마진 %s%%p → 팟 레이즈"
+                            .formatted(pct(equity), pct(required), pct(RAISE_MARGIN)));
         }
-        return new Decision("CALL", 0);
+        return new Decision("CALL", 0,
+                "이퀴티 %s%% ≥ 필요이퀴티 %s%%(콜 %d/팟 %d) → 콜"
+                        .formatted(pct(equity), pct(required), toCall, pot));
+    }
+
+    private static long pct(double x) {
+        return Math.round(x * 100);
     }
 
     /** 벳 금액을 [최소벳, 스택] 으로 자른다. */

@@ -227,6 +227,14 @@ input { padding: 9px 10px; border-radius: 8px; border: none; width: 190px; font-
 .bot-controls { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
 .sm-note { font-size: 12px; }
 button.god-on { background: var(--gold); color: var(--ink); }
+.bot-reasons { margin-top: 8px; display: flex; flex-direction: column; gap: 4px;
+  max-height: 220px; overflow-y: auto; }
+.bot-reason-row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+  font-size: 13px; background: #00000025; border: 1px solid #ffffff10;
+  border-radius: 8px; padding: 5px 9px; }
+.bot-reason-row .br-meta { font-size: 11px; opacity: .6; min-width: 76px; }
+.bot-reason-row .br-act { color: var(--gold); font-weight: 700; }
+.bot-reason-row .br-why { opacity: .85; }
 .seat.spied .card { box-shadow: 0 0 0 2px #9ad, 0 2px 6px #0007; }
 .spy-tag { position: absolute; top: -10px; right: 6px; font-size: 14px; filter: drop-shadow(0 1px 2px #000); }
 

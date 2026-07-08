@@ -6,17 +6,23 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 /**
  * AI 상대 관리 엔드포인트.
  *  - POST   /api/tables/{id}/bots : AI 한 명 착석 → {botId}
  *  - DELETE /api/tables/{id}/bots : 마지막 AI 제거(핸드 진행 중엔 409)
- *  - GET 은 필요 없음 — 좌석 정보는 테이블 뷰에 이미 있다(ai- 접두사로 식별)
+ *  - GET    /api/tables/{id}/bots/reasons : 봇 액션의 판단 근거 기록.
+ *           진행 중 핸드의 것은 기본 제외(봇 핸드 강도 유출 방지) — god=true 는
+ *           /godview 와 같은 신뢰 수준(로컬 홈게임 학습용)에서만 쓴다.
+ *  - 좌석 정보 GET 은 필요 없음 — 테이블 뷰에 이미 있다(ai- 접두사로 식별)
  */
 @RestController
 public class BotController {
@@ -34,6 +40,12 @@ public class BotController {
         String botId = botService.addBot(id);
         broadcaster.broadcast(id);
         return Map.of("botId", botId, "bots", botService.bots(id));
+    }
+
+    @GetMapping("/api/tables/{id}/bots/reasons")
+    public List<BotService.BotAction> reasons(@PathVariable String id,
+                                              @RequestParam(defaultValue = "false") boolean god) {
+        return botService.reasons(id, god);
     }
 
     @DeleteMapping("/api/tables/{id}/bots")
