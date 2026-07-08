@@ -436,6 +436,21 @@ export default function App() {
   const removeBot = () => fetch('/api/tables/t1/bots', { method: 'DELETE' }).catch(() => {});
   const hasBots = state?.seats?.some((s) => s.playerId.startsWith('ai-'));
 
+  // 자동 다음 핸드(오토딜) — 서버 설정을 읽어오고, 버튼으로 토글한다.
+  const [autoDeal, setAutoDeal] = useState(true);
+  useEffect(() => {
+    fetch('/api/tables/t1/autodeal').then((r) => r.json())
+      .then((d) => setAutoDeal(d.enabled)).catch(() => {});
+  }, []);
+  const toggleAutoDeal = () => {
+    const next = !autoDeal;
+    setAutoDeal(next); // 낙관적 반영
+    fetch('/api/tables/t1/autodeal', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: next }),
+    }).then((r) => r.json()).then((d) => setAutoDeal(d.enabled)).catch(() => {});
+  };
+
   if (players.length === 0) {
     return <PlayerAdder onAdd={addAndSave} seatedIds={seatedIds} saved={saved} onForget={forget} />;
   }
@@ -463,6 +478,10 @@ export default function App() {
           )}
           <button className="ghost" onClick={() => setShowReplay((v) => !v)}>
             {showReplay ? '복기 닫기' : '핸드 복기'}
+          </button>
+          <button className={`ghost ${autoDeal ? 'god-on' : ''}`} onClick={toggleAutoDeal}
+            title="핸드가 끝나면 잠시 후 자동으로 다음 핸드를 시작합니다(칩 보유 2명 미만이면 중단)">
+            {autoDeal ? '▶ 자동진행 ON' : '⏸ 자동진행 OFF'}
           </button>
           <button className="ghost" onClick={() => startHand(activeId)}>새 핸드 시작</button>
         </span>
