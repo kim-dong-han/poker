@@ -4,9 +4,12 @@ import com.homepoker.engine.game.ActionType;
 import com.homepoker.engine.game.HandEngine;
 import com.homepoker.engine.game.Player;
 import com.homepoker.engine.game.PlayerStatus;
+import com.homepoker.engine.game.Street;
 import com.homepoker.equity.EquityService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 
@@ -39,9 +42,17 @@ public class BotBrain {
     public record Decision(String type, long amount, String reason) {}
 
     private final EquityService equityService;
+    private final PreflopAdvisor preflopAdvisor;
 
+    /** 차트 없이 이퀴티 로직만 쓰는 봇(기존 동작 그대로 — 테스트·차트 미보유 환경). */
     public BotBrain(EquityService equityService) {
+        this(equityService, PreflopAdvisor.disabled());
+    }
+
+    @Autowired
+    public BotBrain(EquityService equityService, PreflopAdvisor preflopAdvisor) {
         this.equityService = equityService;
+        this.preflopAdvisor = preflopAdvisor;
     }
 
     public Decision decide(HandEngine engine, String botId) {
@@ -53,6 +64,13 @@ public class BotBrain {
         Set<ActionType> legal = engine.legalActions(botId);
         if (legal.isEmpty()) {
             throw new IllegalStateException("봇 차례가 아니다: " + botId);
+        }
+        // 프리플랍은 차트(전사된 프리플랍 전략)가 있으면 그것을 우선한다 — 없으면 이퀴티 폴백
+        if (engine.street() == Street.PREFLOP) {
+            Optional<Decision> byChart = preflopAdvisor.advise(engine, botId, rng);
+            if (byChart.isPresent()) {
+                return byChart.get();
+            }
         }
         Player me = engine.players().stream()
                 .filter(p -> p.id().equals(botId)).findFirst().orElseThrow();
@@ -112,7 +130,7 @@ public class BotBrain {
     }
 
     /** 레이즈-투 금액을 [최소 레이즈-투, 올인 한도] 로 자른다(올인이면 최소 미만도 엔진이 허용). */
-    private static long clampRaise(HandEngine engine, Player me, long desiredTo) {
+    static long clampRaise(HandEngine engine, Player me, long desiredTo) {
         long allInTo = engine.committedThisStreet(me.id()) + me.stack();
         return Math.min(allInTo, Math.max(engine.minRaiseTo(), desiredTo));
     }

@@ -1,0 +1,25 @@
+{
+ "openRaise": {
+  "UTG": {"AA": {"open": 1.0}, "KJo": {"openBorderline": 1.0}},
+  "SB": {"AA": {"open": 1.0}, "54s": {"open": 0.5}}
+ },
+ "threeBet": {
+  "BTN_vs_UTG": {"AA": {"threeBet": 1.0}}
+ },
+ "bbDefense": {
+  "BB_vs_SB": {"AA": {"threeBet": 1.0}, "55": {"call": 1.0}}
+ },
+ "fourBet": {
+  "SB_vs_BB3bet": {"AA": {"fourBet": 1.0}, "55": {"callVs3Bet": 1.0}}
+ },
+ "fiveBet": {
+  "BB3bet_vs_SB4bet": {"AA": {"fiveBet": 1.0}}
+ },
+ "squeeze": {
+  "vs_open_plus_callers": {"AA": {"squeezeVsEarly": 1.0, "squeezeVsLateOrAdjustEarly": 1.0}}
+ },
+ "sizing": {
+  "openRaiseBB": {"UTG": 2.2, "SB": 3.0},
+  "threeBetToBB": {"SB": {"BB": 9}}
+ }
+}

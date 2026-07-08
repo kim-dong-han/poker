@@ -43,3 +43,7 @@ out/
 
 ### 런타임 영속 데이터 (통계 스냅샷 등) ###
 data/
+
+### 유료 교육 자료 전사본 — 저작권상 공개 레포에 올리지 않음 (로컬 전용) ###
+src/main/resources/preflop/bts-preflop.json
+docs/preflop-strategy-bts.md
