@@ -412,11 +412,64 @@ function PlayerAdder({ onAdd, seatedIds, saved, onForget, compact }) {
   );
 }
 
+/* ------------------------------------------------------------------ 홈(랜딩) */
+function HomePage({ onAdd, seatedIds, saved, onForget, onEnter, playerCount }) {
+  const [lobby, setLobby] = useState([]);
+  useEffect(() => {
+    const load = () => fetch('/api/tables').then((r) => r.json()).then(setLobby).catch(() => {});
+    load();
+    const t = setInterval(load, 4000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="login home">
+      <h1>♠ 홈포커</h1>
+      <p>친구들과 하는 실시간 홈게임 + 이퀴티·복기·AI 상대까지 붙은 학습용 포커 테이블.</p>
+      <div className="home-features">
+        <span>📈 실시간 이퀴티</span><span>🧠 EV 손실 복기</span>
+        <span>🤖 AI 상대</span><span>🔒 검증 가능한 셔플</span>
+      </div>
+
+      <PlayerAdder onAdd={onAdd} seatedIds={seatedIds} saved={saved} onForget={onForget} compact />
+
+      {playerCount > 0 && (
+        <button className="primary enter-btn" onClick={onEnter}>
+          🎲 테이블 입장 — {playerCount}명 착석 중
+        </button>
+      )}
+
+      {lobby.length > 0 && (
+        <div className="home-lobby">
+          <b>테이블 로비</b>
+          <table>
+            <thead>
+              <tr><th>테이블</th><th>블라인드</th><th>착석</th><th>상태</th><th>진행 핸드</th></tr>
+            </thead>
+            <tbody>
+              {lobby.map((t) => (
+                <tr key={t.tableId}>
+                  <td>{t.tableId}</td>
+                  <td>{t.smallBlind}/{t.bigBlind}</td>
+                  <td>{t.seatedCount}명</td>
+                  <td>{t.handInProgress ? '🟢 진행 중' : '대기'}</td>
+                  <td>{t.handsPlayed}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="muted home-hint">플레이어를 착석시키면 자동으로 테이블에 입장합니다.</p>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ 앱 */
 export default function App() {
   const { players, views, errors, connected, addPlayer, removePlayer, startHand, act } = usePokerTable();
   const [picked, setPicked] = useState(null);
   const [saved, setSaved] = useState(loadSaved);
+  const [screen, setScreen] = useState('home'); // 'home' | 'table'
   const [showReplay, setShowReplay] = useState(false);
   const [commitment, setCommitment] = useState(null);
   const [godMode, setGodMode] = useState(false);
@@ -483,8 +536,14 @@ export default function App() {
     }).then((r) => r.json()).then((d) => setAutoDeal(d.enabled)).catch(() => {});
   };
 
-  if (players.length === 0) {
-    return <PlayerAdder onAdd={addAndSave} seatedIds={seatedIds} saved={saved} onForget={forget} />;
+  // 홈(랜딩) 화면 — 착석자가 아직 없으면 테이블 화면 대신 항상 홈을 보여준다.
+  if (screen === 'home' || players.length === 0) {
+    return (
+      <HomePage
+        onAdd={(id, name) => { addAndSave(id, name); setScreen('table'); }}
+        seatedIds={seatedIds} saved={saved} onForget={forget}
+        onEnter={() => setScreen('table')} playerCount={players.length} />
+    );
   }
 
   const positions = state ? seatPositions(state.seats.length) : [];
@@ -502,6 +561,8 @@ export default function App() {
         <span className={`dot ${connected[activeId] ? 'on' : 'off'}`} />
         <span className="whoami"><b>{activeId}</b>(으)로 플레이 중</span>
         <span className="hbtns">
+          <button className="ghost" onClick={() => setScreen('home')}
+            title="홈 화면으로(연결·게임 상태는 유지됩니다)">🏠 홈</button>
           {canGodView && (
             <button className={`ghost ${godMode ? 'god-on' : ''}`} onClick={() => setGodMode((v) => !v)}
               title="내가 플레이 중이 아닐 때, 남은 판을 전지적 시점으로 관찰">

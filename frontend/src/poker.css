@@ -68,6 +68,19 @@ header .hbtns { margin-left: auto; display: flex; gap: 8px; }
 .add-row, .add-inline { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: center; }
 .add-inline { justify-content: flex-start; }
 .login .add-row { margin-top: 12px; }
+
+/* ---------- 홈(랜딩) ---------- */
+.home .home-features { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+  margin: 14px 0 22px; }
+.home .home-features span { background: #00000030; border: 1px solid #ffffff14;
+  border-radius: 999px; padding: 5px 13px; font-size: 13px; }
+.home .add-inline { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.home .enter-btn { margin-top: 18px; font-size: 16px; padding: 11px 22px; }
+.home .home-lobby { margin: 26px auto 0; max-width: 560px; }
+.home .home-lobby table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 14px; }
+.home .home-lobby th, .home .home-lobby td { padding: 6px 8px; text-align: center;
+  border-bottom: 1px solid #ffffff14; }
+.home .home-hint { margin-top: 18px; font-size: 13px; }
 input { padding: 9px 10px; border-radius: 8px; border: none; width: 190px; font-size: 14px; }
 .add-inline input { width: 150px; padding: 7px 9px; }
 
