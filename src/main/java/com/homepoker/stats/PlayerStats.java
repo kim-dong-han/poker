@@ -15,6 +15,13 @@ public class PlayerStats {
     private int pfrHands;
     private int handsWon;
     private long netProfit;
+    // 해링턴 상대 모델링 수치의 원료(AF/WtSD/F3B)
+    private int flopsSeen;
+    private int showdowns;
+    private int postflopAggr;
+    private int postflopCalls;
+    private int facedThreeBet;
+    private int foldedToThreeBet;
 
     public PlayerStats(String playerId) {
         this.playerId = playerId;
@@ -36,6 +43,24 @@ public class PlayerStats {
             handsWon++;
         }
         netProfit += netDelta;
+    }
+
+    void addPostflop(boolean sawFlop, int aggr, int calls, boolean showdown,
+                     boolean faced3Bet, boolean folded3Bet) {
+        if (sawFlop) {
+            flopsSeen++;
+        }
+        if (showdown) {
+            showdowns++;
+        }
+        postflopAggr += aggr;
+        postflopCalls += calls;
+        if (faced3Bet) {
+            facedThreeBet++;
+        }
+        if (folded3Bet) {
+            foldedToThreeBet++;
+        }
     }
 
     public String playerId() {
@@ -66,10 +91,31 @@ public class PlayerStats {
         return handsPlayed == 0 ? 0 : (double) pfrHands / handsPlayed;
     }
 
+    /** AF = 포스트플랍 (벳+레이즈) ÷ 콜. 콜 0회면 공격 횟수 자체를 반환(무한대 근사). */
+    public double af() {
+        return postflopCalls == 0 ? postflopAggr : (double) postflopAggr / postflopCalls;
+    }
+
+    /** WtSD = 플랍 본 핸드 중 쇼다운 도달 비율. */
+    public double wtsd() {
+        return flopsSeen == 0 ? 0 : (double) showdowns / flopsSeen;
+    }
+
+    /** F3B = 오픈 후 3벳 마주친 핸드 중 폴드 비율. */
+    public double f3b() {
+        return facedThreeBet == 0 ? 0 : (double) foldedToThreeBet / facedThreeBet;
+    }
+
+    /** 포스트플랍 표본 수(AF 신뢰도 판단용). */
+    public int postflopSamples() {
+        return postflopAggr + postflopCalls;
+    }
+
     // --- 영속화(스냅샷) ---
 
     PlayerStatsSnapshot toSnapshot() {
-        return new PlayerStatsSnapshot(playerId, name, handsPlayed, vpipHands, pfrHands, handsWon, netProfit);
+        return new PlayerStatsSnapshot(playerId, name, handsPlayed, vpipHands, pfrHands, handsWon, netProfit,
+                flopsSeen, showdowns, postflopAggr, postflopCalls, facedThreeBet, foldedToThreeBet);
     }
 
     static PlayerStats fromSnapshot(PlayerStatsSnapshot s) {
@@ -80,6 +126,12 @@ public class PlayerStats {
         ps.pfrHands = s.pfrHands();
         ps.handsWon = s.handsWon();
         ps.netProfit = s.netProfit();
+        ps.flopsSeen = s.flopsSeen();
+        ps.showdowns = s.showdowns();
+        ps.postflopAggr = s.postflopAggr();
+        ps.postflopCalls = s.postflopCalls();
+        ps.facedThreeBet = s.facedThreeBet();
+        ps.foldedToThreeBet = s.foldedToThreeBet();
         return ps;
     }
 }

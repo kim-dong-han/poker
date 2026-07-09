@@ -44,6 +44,13 @@ public class StatsService {
                     report.preflopRaisers().contains(id),
                     report.winners().contains(id),
                     report.netDelta().getOrDefault(id, 0L));
+            ps.addPostflop(
+                    report.sawFlop().contains(id),
+                    report.postflopAggr().getOrDefault(id, 0),
+                    report.postflopCalls().getOrDefault(id, 0),
+                    report.showdown().contains(id),
+                    report.facedThreeBet().contains(id),
+                    report.foldedToThreeBet().contains(id));
         }
         persist();
     }

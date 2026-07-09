@@ -11,6 +11,13 @@ public record PlayerStatsSnapshot(
         int vpipHands,
         int pfrHands,
         int handsWon,
-        long netProfit
+        long netProfit,
+        // 포스트플랍 지표 원료(구버전 파일엔 없음 — Jackson 이 0 으로 채운다)
+        int flopsSeen,
+        int showdowns,
+        int postflopAggr,
+        int postflopCalls,
+        int facedThreeBet,
+        int foldedToThreeBet
 ) {
 }

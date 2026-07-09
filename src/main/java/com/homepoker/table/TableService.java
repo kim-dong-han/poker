@@ -173,8 +173,12 @@ public class TableService {
                 winners.add(id);
             }
         });
+        // 포스트플랍 지표(AF/WtSD/F3B 원료)는 종료된 핸드 로그를 1회 재생해 뽑는다
+        var tally = com.homepoker.stats.HandLogTally.tally(engine.log());
         statsService.record(new HandReport(
-                acc.names, acc.dealt, acc.voluntaryPreflop, acc.preflopRaisers, netDelta, winners));
+                acc.names, acc.dealt, acc.voluntaryPreflop, acc.preflopRaisers, netDelta, winners,
+                tally.sawFlop(), tally.postflopAggr(), tally.postflopCalls(),
+                tally.showdown(), tally.facedThreeBet(), tally.foldedToThreeBet()));
         accumulators.remove(tableId);
     }
 

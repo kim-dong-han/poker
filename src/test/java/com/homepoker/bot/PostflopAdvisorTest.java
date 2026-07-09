@@ -235,6 +235,60 @@ class PostflopAdvisorTest {
         assertTrue(d.reason().startsWith("해링턴:"), "포스트플랍은 해링턴 규칙: " + d.reason());
     }
 
+    /* ---------- 상대 모델링(니트/콜스테이션/LAG) ---------- */
+
+    private static com.homepoker.stats.StatsService statsWith(String id, boolean vpip, boolean pfr,
+                                                              int aggrPerHand, int callsPerHand) {
+        var stats = new com.homepoker.stats.StatsService();
+        for (int i = 0; i < 30; i++) {
+            stats.record(new com.homepoker.stats.HandReport(
+                    java.util.Map.of(id, id), java.util.Set.of(id),
+                    vpip ? java.util.Set.of(id) : java.util.Set.of(),
+                    pfr ? java.util.Set.of(id) : java.util.Set.of(),
+                    java.util.Map.of(id, 0L), java.util.Set.of(), java.util.Set.of(id),
+                    java.util.Map.of(id, aggrPerHand), java.util.Map.of(id, callsPerHand),
+                    java.util.Set.of(), java.util.Set.of(), java.util.Set.of()));
+        }
+        return stats;
+    }
+
+    @Test
+    void neverBluffsCallingStation() {
+        // me = 콜스테이션(VPIP 100%, AF 0): 에어 마른 보드라도 C-벳 금지
+        PostflopAdvisor a = new PostflopAdvisor(statsWith("me", true, false, 0, 2), 1.0, 1.0);
+        HandEngine e = flop("Ah", "5c", "Kd", "3s", "Qs", "6d", "2h");
+        e.apply(Action.check("me"));
+        Optional<BotBrain.Decision> d = a.advise(e, "bot", new Random(1));
+        assertEquals("CHECK", d.orElseThrow().type());
+        assertTrue(d.get().reason().contains("블러프 금지"));
+    }
+
+    @Test
+    void callsDownVsLagRaise() {
+        // me = LAG(VPIP/PFR 100%, AF 3): 내 벳에 레이즈 맞아도 역해석 → 콜다운
+        PostflopAdvisor a = new PostflopAdvisor(statsWith("me", true, true, 3, 1), 1.0, 1.0);
+        HandEngine e = flop("As", "Qd", "Kd", "3s", "Qc", "6h", "2h");
+        e.apply(Action.check("me"));
+        e.apply(Action.bet("bot", 60));
+        e.apply(Action.raiseTo("me", 180));
+        Optional<BotBrain.Decision> d = a.advise(e, "bot", new Random(1));
+        assertEquals("CALL", d.orElseThrow().type());
+        assertTrue(d.get().reason().contains("LAG"));
+    }
+
+    @Test
+    void foldsOnePairToNitTurnBet() {
+        // me = 니트(VPIP 0%): 니트의 턴 큰 베팅 = 진짜 → 톱페어 폴드
+        PostflopAdvisor a = new PostflopAdvisor(statsWith("me", false, false, 0, 0), 1.0, 1.0);
+        HandEngine e = flop("As", "Qd", "Kd", "3s", "Qc", "6h", "2h");
+        e.apply(Action.check("me"));
+        e.apply(Action.check("bot")); // 플랍 체크 통과 → 턴 팟 120
+        e.apply(Action.bet("me", 120));
+        Optional<BotBrain.Decision> d = a.advise(e, "bot", new Random(1));
+        assertEquals("FOLD", d.orElseThrow().type());
+        assertTrue(d.get().reason().contains("니트"));
+    }
+
     @Test
     void disabledAdvisorAlwaysFallsBack() {
         HandEngine e = flop("Ah", "5c", "Kd", "3s", "Qs", "6d", "2h");

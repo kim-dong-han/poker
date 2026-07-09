@@ -10,6 +10,8 @@ import com.homepoker.engine.game.HandLog;
 import com.homepoker.engine.game.Player;
 import com.homepoker.engine.game.PlayerStatus;
 import com.homepoker.engine.game.Street;
+import com.homepoker.stats.PlayerStats;
+import com.homepoker.stats.StatsService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -53,25 +55,69 @@ public class PostflopAdvisor {
     /** 드로우 콜에 얹어주는 보수적 임플라이드 오즈 보정. */
     private static final double IMPLIED_BONUS = 0.04;
 
+    /** 상대 유형(해링턴 Part 2 게임플랜). null = 표본 부족/보통 → 기본 규칙. */
+    enum OppType { NIT, CALLING_STATION, LAG }
+
+    /** 유형 판별에 필요한 최소 핸드 표본. */
+    private static final int MIN_SAMPLE = 30;
+
     private final boolean enabled;
     private final double cbetFreq;
     private final double stealFreq;
+    private final StatsService statsService; // null 허용 — 상대 모델링 없이 동작
 
     @org.springframework.beans.factory.annotation.Autowired
-    public PostflopAdvisor(@Value("${poker.bot.cbet-freq:0.7}") double cbetFreq,
+    public PostflopAdvisor(StatsService statsService,
+                           @Value("${poker.bot.cbet-freq:0.7}") double cbetFreq,
                            @Value("${poker.bot.steal-freq:0.4}") double stealFreq) {
-        this(true, cbetFreq, stealFreq);
+        this(true, cbetFreq, stealFreq, statsService);
     }
 
-    private PostflopAdvisor(boolean enabled, double cbetFreq, double stealFreq) {
+    /** 상대 모델링 없이 규칙만 쓰는 조언자(단위테스트용). */
+    public PostflopAdvisor(double cbetFreq, double stealFreq) {
+        this(true, cbetFreq, stealFreq, null);
+    }
+
+    private PostflopAdvisor(boolean enabled, double cbetFreq, double stealFreq, StatsService statsService) {
         this.enabled = enabled;
         this.cbetFreq = cbetFreq;
         this.stealFreq = stealFreq;
+        this.statsService = statsService;
     }
 
     /** 항상 empty(기존 이퀴티 로직만 검증하는 테스트·비활성 환경용). */
     public static PostflopAdvisor disabled() {
-        return new PostflopAdvisor(false, 0.7, 0.4);
+        return new PostflopAdvisor(false, 0.7, 0.4, null);
+    }
+
+    /**
+     * 헤즈업 팟의 단일 상대를 통계로 유형 판별(니트/콜스테이션/LAG).
+     * 표본 부족·멀티웨이·통계 없음 → null(기본 규칙).
+     */
+    private OppType opponentType(HandEngine engine, String botId) {
+        if (statsService == null) {
+            return null;
+        }
+        List<Player> opps = engine.players().stream()
+                .filter(p -> !p.id().equals(botId) && p.status() != PlayerStatus.FOLDED)
+                .toList();
+        if (opps.size() != 1) {
+            return null;
+        }
+        PlayerStats s = statsService.statsFor(opps.get(0).id());
+        if (s == null || s.handsPlayed() < MIN_SAMPLE) {
+            return null;
+        }
+        if (s.vpip() > 0.35 && s.af() < 1.2 && s.postflopSamples() >= 10) {
+            return OppType.CALLING_STATION;
+        }
+        if (s.vpip() < 0.16) {
+            return OppType.NIT;
+        }
+        if (s.vpip() > 0.25 && s.pfr() > 0.18 && s.af() > 2.5 && s.postflopSamples() >= 10) {
+            return OppType.LAG;
+        }
+        return null;
     }
 
     public Optional<BotBrain.Decision> advise(HandEngine engine, String botId, Random rng) {
@@ -90,20 +136,22 @@ public class PostflopAdvisor {
         boolean multiway = engine.players().stream()
                 .filter(p -> !p.id().equals(botId) && p.status() != PlayerStatus.FOLDED)
                 .count() >= 2;
+        OppType opp = opponentType(engine, botId);
         long pot = engine.pot();
         long toCall = Math.min(engine.amountToCall(botId), me.stack());
         Set<ActionType> legal = engine.legalActions(botId);
 
         return toCall == 0
-                ? adviseNoBet(engine, me, rd, tx, hist, multiway, pot, legal, rng)
-                : adviseFacingBet(engine, me, rd, tx, hist, multiway, pot, toCall, legal);
+                ? adviseNoBet(engine, me, rd, tx, hist, multiway, opp, pot, legal, rng)
+                : adviseFacingBet(engine, me, rd, hist, multiway, opp, pot, toCall, legal);
     }
 
     /* ---------- 맞출 벳이 없을 때(벳/체크) ---------- */
 
     private Optional<BotBrain.Decision> adviseNoBet(HandEngine engine, Player me, Reading rd,
                                                     Texture tx, Hist hist, boolean multiway,
-                                                    long pot, Set<ActionType> legal, Random rng) {
+                                                    OppType opp, long pot, Set<ActionType> legal,
+                                                    Random rng) {
         Street st = engine.street();
         switch (rd.handClass()) {
             case MONSTER, VERY_STRONG -> {
@@ -148,9 +196,14 @@ public class PostflopAdvisor {
                 return check(legal, "해링턴: 드로우 — 공짜 카드(턴 배당 악화, 체크)");
             }
             case AIR -> {
+                if (opp == OppType.CALLING_STATION || opp == OppType.LAG) {
+                    // 콜스테이션 = 안 접음 / LAG = 콜·레이즈로 반격 → 에어 블러프 금지
+                    return check(legal, "해링턴: 상대 유형(%s) — 블러프 금지(체크)".formatted(oppLabel(opp)));
+                }
                 boolean cbetBoard = tx == Texture.DRY || tx == Texture.PAIRED || tx == Texture.ACE_HIGH;
+                double freq = opp == OppType.NIT ? 1.0 : cbetFreq; // 니트에겐 항상 C-벳
                 if (st == Street.FLOP && hist.preflopAggressor() && !multiway && cbetBoard
-                        && rng.nextDouble() < cbetFreq) {
+                        && rng.nextDouble() < freq) {
                     return bet(engine, me, pot, 1, legal,
                             "해링턴: %s 보드 C-벳(에어) — 1/2팟(2/3 폴드시키면 흑자)".formatted(texLabel(tx)));
                 }
@@ -169,7 +222,7 @@ public class PostflopAdvisor {
     /* ---------- 벳을 마주했을 때(레이즈/콜/폴드) ---------- */
 
     private Optional<BotBrain.Decision> adviseFacingBet(HandEngine engine, Player me, Reading rd,
-                                                        Texture tx, Hist hist, boolean multiway,
+                                                        Hist hist, boolean multiway, OppType opp,
                                                         long pot, long toCall, Set<ActionType> legal) {
         Street st = engine.street();
         double required = (double) toCall / (pot + toCall);
@@ -185,12 +238,21 @@ public class PostflopAdvisor {
                 if (st == Street.RIVER && toCall * 3 > potBefore) {
                     return call("해링턴: 아주 강함 — 리버 레이즈 자제(콜만)");
                 }
+                if (opp == OppType.LAG && st == Street.FLOP) {
+                    return call("해링턴: LAG 상대 트랩 — 콜로 동행(그의 베팅 유도)");
+                }
                 return raiseOrCall(engine, me, engine.currentBet() + pot, legal,
                         "해링턴: 셋/투페어 — 레이즈로 팟 키움");
             }
             case STRONG -> {
                 if (alarm && !rd.comboDraw()) {
+                    if (opp == OppType.LAG) {
+                        return call("해링턴: LAG 의 레이즈는 역해석 — 원페어 콜다운");
+                    }
                     return fold("해링턴: 내 벳에 레이즈 = 경보 → 원페어 폴드");
+                }
+                if (opp == OppType.NIT && st != Street.FLOP && toCall * 3 > potBefore) {
+                    return fold("해링턴: 니트의 턴/리버 베팅 = 진짜 강함 → 원페어 폴드");
                 }
                 boolean bigBet = toCall * 3 > potBefore * 2; // 2/3팟 초과
                 if (st == Street.RIVER && bigBet) {
@@ -497,6 +559,14 @@ public class PostflopAdvisor {
             case MEDIUM -> "미디엄";
             case DRAW -> "드로우";
             case AIR -> "에어";
+        };
+    }
+
+    private static String oppLabel(OppType opp) {
+        return switch (opp) {
+            case NIT -> "니트";
+            case CALLING_STATION -> "콜스테이션";
+            case LAG -> "LAG";
         };
     }
 
