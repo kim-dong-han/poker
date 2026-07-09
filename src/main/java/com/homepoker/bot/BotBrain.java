@@ -43,16 +43,24 @@ public class BotBrain {
 
     private final EquityService equityService;
     private final PreflopAdvisor preflopAdvisor;
+    private final PostflopAdvisor postflopAdvisor;
 
-    /** 차트 없이 이퀴티 로직만 쓰는 봇(기존 동작 그대로 — 테스트·차트 미보유 환경). */
+    /** 차트·규칙 없이 이퀴티 로직만 쓰는 봇(기존 동작 그대로 — 테스트·차트 미보유 환경). */
     public BotBrain(EquityService equityService) {
-        this(equityService, PreflopAdvisor.disabled());
+        this(equityService, PreflopAdvisor.disabled(), PostflopAdvisor.disabled());
+    }
+
+    /** 프리플랍 차트만 켠 봇(차트 스모크 테스트 호환). */
+    public BotBrain(EquityService equityService, PreflopAdvisor preflopAdvisor) {
+        this(equityService, preflopAdvisor, PostflopAdvisor.disabled());
     }
 
     @Autowired
-    public BotBrain(EquityService equityService, PreflopAdvisor preflopAdvisor) {
+    public BotBrain(EquityService equityService, PreflopAdvisor preflopAdvisor,
+                    PostflopAdvisor postflopAdvisor) {
         this.equityService = equityService;
         this.preflopAdvisor = preflopAdvisor;
+        this.postflopAdvisor = postflopAdvisor;
     }
 
     public Decision decide(HandEngine engine, String botId) {
@@ -65,11 +73,16 @@ public class BotBrain {
         if (legal.isEmpty()) {
             throw new IllegalStateException("봇 차례가 아니다: " + botId);
         }
-        // 프리플랍은 차트(전사된 프리플랍 전략)가 있으면 그것을 우선한다 — 없으면 이퀴티 폴백
+        // 프리플랍 = BTS 차트, 포스트플랍 = 해링턴 규칙 우선 — 둘 다 규칙 밖이면 이퀴티 폴백
         if (engine.street() == Street.PREFLOP) {
             Optional<Decision> byChart = preflopAdvisor.advise(engine, botId, rng);
             if (byChart.isPresent()) {
                 return byChart.get();
+            }
+        } else {
+            Optional<Decision> byRules = postflopAdvisor.advise(engine, botId, rng);
+            if (byRules.isPresent()) {
+                return byRules.get();
             }
         }
         Player me = engine.players().stream()
@@ -124,7 +137,7 @@ public class BotBrain {
     }
 
     /** 벳 금액을 [최소벳, 스택] 으로 자른다. */
-    private static long clampBet(HandEngine engine, Player me, long desired) {
+    static long clampBet(HandEngine engine, Player me, long desired) {
         long min = engine.minRaiseTo(); // 벳 전이므로 = 빅블라인드
         return Math.min(me.stack(), Math.max(min, desired));
     }

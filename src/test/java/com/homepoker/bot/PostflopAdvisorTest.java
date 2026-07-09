@@ -1,0 +1,244 @@
+package com.homepoker.bot;
+
+import com.homepoker.engine.card.Card;
+import com.homepoker.engine.card.Deck;
+import com.homepoker.engine.game.Action;
+import com.homepoker.engine.game.HandEngine;
+import com.homepoker.engine.game.Player;
+import com.homepoker.engine.game.Street;
+import com.homepoker.equity.EquityService;
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Random;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * 해링턴 규칙 포스트플랍 판단 검증. 혼합 빈도(c-bet/스틸)는 1.0 으로 고정해 결정적으로 만든다.
+ */
+class PostflopAdvisorTest {
+
+    private static final PostflopAdvisor advisor = new PostflopAdvisor(1.0, 1.0);
+
+    private static List<Card> cards(String... notations) {
+        List<Card> list = new ArrayList<>();
+        for (String s : notations) {
+            list.add(Card.of(s));
+        }
+        return list;
+    }
+
+    /**
+     * 헤즈업: bot = 버튼/SB(index 0, 포스트플랍 마지막 행동), me = BB.
+     * 덱 순서 = bot c1, me c1, bot c2, me c2, 플랍 3장, 턴, 리버.
+     * 프리플랍: bot 3bb 오픈, me 콜 → 팟 120, 플랍 진입(bot = 어그레서).
+     */
+    private static HandEngine flop(String botC1, String botC2, String meC1, String meC2,
+                                   String f1, String f2, String f3) {
+        Player bot = new Player("bot", "Bot", 1000);
+        Player me = new Player("me", "Me", 1000);
+        Deck deck = Deck.ofOrder(cards(botC1, meC1, botC2, meC2, f1, f2, f3, "4d", "3c"));
+        HandEngine e = new HandEngine(List.of(bot, me), 0, 10, 20, deck);
+        e.start();
+        e.apply(Action.raiseTo("bot", 60));
+        e.apply(Action.call("me"));
+        return e; // FLOP, 팟 120, me 먼저 행동
+    }
+
+    /* ---------- 분류 단위 테스트 ---------- */
+
+    @Test
+    void classifiesHandStrength() {
+        // 괴물: 스트레이트
+        assertEquals(PostflopAdvisor.HandClass.MONSTER,
+                PostflopAdvisor.classify(cards("8s", "9d"), cards("7c", "6h", "Th")).handClass());
+        // 아주 강함: 셋
+        assertEquals(PostflopAdvisor.HandClass.VERY_STRONG,
+                PostflopAdvisor.classify(cards("5s", "5d"), cards("Qc", "5h", "2h")).handClass());
+        // 강함: 톱페어 / 오버페어
+        assertEquals(PostflopAdvisor.HandClass.STRONG,
+                PostflopAdvisor.classify(cards("As", "Qd"), cards("Qc", "6h", "2h")).handClass());
+        assertEquals(PostflopAdvisor.HandClass.STRONG,
+                PostflopAdvisor.classify(cards("Js", "Jd"), cards("9c", "6h", "2h")).handClass());
+        // 미디엄: 언더페어·미들페어, 보드 트립스 키커
+        assertEquals(PostflopAdvisor.HandClass.MEDIUM,
+                PostflopAdvisor.classify(cards("7s", "7d"), cards("Qc", "6h", "2h")).handClass());
+        assertEquals(PostflopAdvisor.HandClass.MEDIUM,
+                PostflopAdvisor.classify(cards("As", "2d"), cards("Qc", "Qh", "Qs")).handClass());
+        // 에어: 보드 페어만 있는 노페어, 하이카드
+        assertEquals(PostflopAdvisor.HandClass.AIR,
+                PostflopAdvisor.classify(cards("As", "3d"), cards("Kc", "Kh", "7s")).handClass());
+        // 드로우: 플러쉬 드로우(9아웃), 콤보(FD+OESD 15아웃)
+        PostflopAdvisor.Reading fd = PostflopAdvisor.classify(cards("Ah", "7h"), cards("Kh", "9h", "2c"));
+        assertEquals(PostflopAdvisor.HandClass.DRAW, fd.handClass());
+        assertEquals(9, fd.outs());
+        PostflopAdvisor.Reading combo = PostflopAdvisor.classify(cards("8h", "9h"), cards("7h", "6h", "Kc"));
+        assertEquals(PostflopAdvisor.HandClass.DRAW, combo.handClass());
+        assertTrue(combo.comboDraw());
+        assertEquals(15, combo.outs());
+        // 리버(보드 5장)에는 드로우 분류가 없다
+        assertEquals(PostflopAdvisor.HandClass.AIR,
+                PostflopAdvisor.classify(cards("Ah", "7h"), cards("Kh", "9h", "2c", "3s", "Jd")).handClass());
+    }
+
+    @Test
+    void classifiesFlopTexture() {
+        assertEquals(PostflopAdvisor.Texture.DRY, PostflopAdvisor.texture(cards("Qc", "6h", "2s")));
+        assertEquals(PostflopAdvisor.Texture.WET, PostflopAdvisor.texture(cards("Jh", "Th", "9c")));
+        assertEquals(PostflopAdvisor.Texture.WET, PostflopAdvisor.texture(cards("Ah", "7h", "2h")));
+        assertEquals(PostflopAdvisor.Texture.PAIRED, PostflopAdvisor.texture(cards("8c", "8h", "2s")));
+        assertEquals(PostflopAdvisor.Texture.ACE_HIGH, PostflopAdvisor.texture(cards("Ac", "7h", "2s")));
+    }
+
+    /* ---------- 플랍 판단 ---------- */
+
+    @Test
+    void cbetsAirOnDryFlopAsAggressor() {
+        HandEngine e = flop("Ah", "5c", "Kd", "3s", "Qs", "6d", "2h");
+        e.apply(Action.check("me"));
+        Optional<BotBrain.Decision> d = advisor.advise(e, "bot", new Random(1));
+        assertEquals("BET", d.orElseThrow().type());
+        assertEquals(60, d.get().amount(), "마른 보드 C-벳은 1/2팟");
+        assertTrue(d.get().reason().contains("C-벳"));
+    }
+
+    @Test
+    void checksAirOnWetFlop() {
+        HandEngine e = flop("Ad", "2s", "Kd", "3s", "Jh", "Th", "9c");
+        e.apply(Action.check("me"));
+        Optional<BotBrain.Decision> d = advisor.advise(e, "bot", new Random(1));
+        assertEquals("CHECK", d.orElseThrow().type());
+        assertTrue(d.get().reason().contains("젖은 보드"));
+    }
+
+    @Test
+    void valueBetsTopPair() {
+        HandEngine e = flop("As", "Qd", "Kd", "3s", "Qc", "6h", "2h");
+        e.apply(Action.check("me"));
+        Optional<BotBrain.Decision> d = advisor.advise(e, "bot", new Random(1));
+        assertEquals("BET", d.orElseThrow().type());
+        assertTrue(d.get().reason().contains("밸류벳"));
+    }
+
+    @Test
+    void mediumHandChecksThenCallsSmallFoldsBig() {
+        // 77 on Q62 = 미디엄: 체크
+        HandEngine e = flop("7s", "7d", "Kd", "3s", "Qc", "6h", "2h");
+        e.apply(Action.check("me"));
+        assertEquals("CHECK", advisor.advise(e, "bot", new Random(1)).orElseThrow().type());
+
+        // 작은 벳(30 ≤ 팟 120 의 1/3)은 콜
+        HandEngine e2 = flop("7s", "7d", "Kd", "3s", "Qc", "6h", "2h");
+        e2.apply(Action.bet("me", 30));
+        assertEquals("CALL", advisor.advise(e2, "bot", new Random(1)).orElseThrow().type());
+
+        // 팟사이즈 벳은 폴드
+        HandEngine e3 = flop("7s", "7d", "Kd", "3s", "Qc", "6h", "2h");
+        e3.apply(Action.bet("me", 120));
+        assertEquals("FOLD", advisor.advise(e3, "bot", new Random(1)).orElseThrow().type());
+    }
+
+    @Test
+    void flushDrawCallsHalfPotFoldsPotSize() {
+        // FD 9아웃: 플랍 룰오브4 = 36% + 임플라이드 4% = 40%
+        HandEngine e = flop("Ah", "7h", "Kd", "3s", "Kh", "9h", "2c");
+        e.apply(Action.bet("me", 60)); // 필요 33% → 콜
+        assertEquals("CALL", advisor.advise(e, "bot", new Random(1)).orElseThrow().type());
+
+        HandEngine e2 = flop("Ah", "7h", "Kd", "3s", "Kh", "9h", "2c");
+        e2.apply(Action.bet("me", 300)); // 필요 42% > 40% → 폴드
+        assertEquals("FOLD", advisor.advise(e2, "bot", new Random(1)).orElseThrow().type());
+    }
+
+    @Test
+    void comboDrawSemiBluffRaisesFlop() {
+        HandEngine e = flop("8h", "9h", "Kd", "3s", "7h", "6h", "Kc");
+        e.apply(Action.bet("me", 60));
+        Optional<BotBrain.Decision> d = advisor.advise(e, "bot", new Random(1));
+        assertEquals("RAISE", d.orElseThrow().type());
+        assertTrue(d.get().reason().contains("콤보 드로우"));
+    }
+
+    @Test
+    void alarmFoldsTopPairWhenRaisedOverMyBet() {
+        HandEngine e = flop("As", "Qd", "Kd", "3s", "Qc", "6h", "2h");
+        e.apply(Action.check("me"));
+        e.apply(Action.bet("bot", 60));
+        e.apply(Action.raiseTo("me", 180)); // 내 벳에 레이즈 = 경보
+        Optional<BotBrain.Decision> d = advisor.advise(e, "bot", new Random(1));
+        assertEquals("FOLD", d.orElseThrow().type());
+        assertTrue(d.get().reason().contains("경보"));
+    }
+
+    @Test
+    void monsterRaisesFacingBet() {
+        HandEngine e = flop("8s", "9d", "Kd", "3s", "7c", "6h", "Th");
+        e.apply(Action.bet("me", 60));
+        Optional<BotBrain.Decision> d = advisor.advise(e, "bot", new Random(1));
+        assertEquals("RAISE", d.orElseThrow().type());
+        assertTrue(d.get().reason().contains("괴물"));
+    }
+
+    /* ---------- 턴/리버 규칙 ---------- */
+
+    @Test
+    void turnPotControlsOnePairAndRiverThinValues() {
+        // 플랍 밸류벳 → 콜 → 턴: 원페어 팟 컨트롤 1/2팟
+        HandEngine e = flop("As", "Qd", "Kd", "3s", "Qc", "6h", "2h");
+        e.apply(Action.check("me"));
+        e.apply(Action.bet("bot", 60));
+        e.apply(Action.call("me")); // 턴(2d), 팟 240
+        assertEquals(Street.TURN, e.street());
+        e.apply(Action.check("me"));
+        Optional<BotBrain.Decision> d = advisor.advise(e, "bot", new Random(1));
+        assertEquals("BET", d.orElseThrow().type());
+        assertEquals(120, d.get().amount(), "턴 팟 컨트롤 = 1/2팟");
+        assertTrue(d.get().reason().contains("팟 컨트롤"));
+
+        // 리버(3c — 스케어 아님): 씬 밸류 1/2팟
+        e.apply(Action.bet("bot", 120));
+        e.apply(Action.call("me")); // 리버, 팟 480
+        assertEquals(Street.RIVER, e.street());
+        e.apply(Action.check("me"));
+        Optional<BotBrain.Decision> d2 = advisor.advise(e, "bot", new Random(1));
+        assertEquals("BET", d2.orElseThrow().type());
+        assertTrue(d2.get().reason().contains("씬 밸류"));
+    }
+
+    @Test
+    void riverFoldsOnePairToBigBet() {
+        HandEngine e = flop("As", "Qd", "Kd", "3s", "Qc", "6h", "2h");
+        e.apply(Action.check("me"));
+        e.apply(Action.check("bot")); // 플랍 체크 통과
+        e.apply(Action.check("me"));
+        e.apply(Action.check("bot")); // 턴 체크 통과, 리버 팟 120
+        assertEquals(Street.RIVER, e.street());
+        e.apply(Action.bet("me", 120)); // 팟사이즈 = 큰 벳
+        Optional<BotBrain.Decision> d = advisor.advise(e, "bot", new Random(1));
+        assertEquals("FOLD", d.orElseThrow().type());
+        assertTrue(d.get().reason().contains("리버 큰 벳"));
+    }
+
+    /* ---------- BotBrain 통합 ---------- */
+
+    @Test
+    void botBrainUsesHarringtonRulesPostflop() {
+        BotBrain brain = new BotBrain(new EquityService(), PreflopAdvisor.disabled(),
+                new PostflopAdvisor(1.0, 1.0));
+        HandEngine e = flop("Ah", "5c", "Kd", "3s", "Qs", "6d", "2h");
+        e.apply(Action.check("me"));
+        BotBrain.Decision d = brain.decide(e, "bot", 100, new Random(1));
+        assertTrue(d.reason().startsWith("해링턴:"), "포스트플랍은 해링턴 규칙: " + d.reason());
+    }
+
+    @Test
+    void disabledAdvisorAlwaysFallsBack() {
+        HandEngine e = flop("Ah", "5c", "Kd", "3s", "Qs", "6d", "2h");
+        e.apply(Action.check("me"));
+        assertTrue(PostflopAdvisor.disabled().advise(e, "bot", new Random(1)).isEmpty());
+    }
+}
