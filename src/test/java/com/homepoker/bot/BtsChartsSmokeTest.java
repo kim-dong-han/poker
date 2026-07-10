@@ -62,6 +62,30 @@ class BtsChartsSmokeTest {
                 "첫 프리플랍 판단은 차트 근거여야 함: " + reasons.get(0).reason());
     }
 
+    // 9인 테이블에서도 차트가 켜져 있어야 한다(poker_ai_2~4 스크린샷 회귀 — A4s 미오픈 문제).
+    // BTS 차트는 UTG 조차 A4s 오픈 1.0 이므로, 9인 UTG 봇의 A4s 는 반드시 레이즈다.
+    @Test
+    void ninePlayerTableOpensA4sByChart() {
+        PreflopAdvisor advisor = new PreflopAdvisor(new BtsPreflopCharts(), 0.35);
+        java.util.List<Player> nine = new java.util.ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            nine.add(new Player("p" + i, "P" + i, 1000));
+        }
+        // 버튼 p0 → SB p1, BB p2, UTG p3(첫 액션). 딜은 SB부터: p3 의 카드 = 덱 3번째·12번째
+        String[] deck = {
+                "2c", "3c", "As", "5c", "6c", "7c", "8c", "9c", "Tc",
+                "2d", "3d", "4s", "5d", "6d", "7d", "8d", "9d", "Td",
+                "Jh", "Qh", "Kh", "2h", "3h"};
+        com.homepoker.engine.card.Deck order = com.homepoker.engine.card.Deck.ofOrder(
+                java.util.Arrays.stream(deck).map(com.homepoker.engine.card.Card::of).toList());
+        com.homepoker.engine.game.HandEngine e =
+                new com.homepoker.engine.game.HandEngine(nine, 0, 10, 20, order);
+        e.start();
+        var d = advisor.advise(e, "p3", new java.util.Random(1)).orElseThrow();
+        assertEquals("RAISE", d.type(), "9인 UTG A4s 는 차트 오픈: " + d.reason());
+        assertTrue(d.reason().startsWith("차트:"), d.reason());
+    }
+
     @Test
     void realChartLoadsAndCoversKnownRanges() {
         BtsPreflopCharts charts = new BtsPreflopCharts();

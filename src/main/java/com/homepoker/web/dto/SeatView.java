@@ -14,6 +14,8 @@ public record SeatView(
         long committedThisStreet,
         List<String> holeCards,
         boolean button,
-        boolean currentActor
+        boolean currentActor,
+        /** 이번 스트리트에 이 플레이어가 한 마지막 액션("CHECK"/"CALL"/"BET 60"...). 없으면 null. */
+        String lastAction
 ) {
 }

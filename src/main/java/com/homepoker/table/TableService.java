@@ -231,7 +231,7 @@ public class TableService {
             // 아직 핸드 전: 로비 상태
             List<SeatView> seats = table.seatedPlayers().stream()
                     .map(p -> new SeatView(p.id(), p.name(), p.stack(), "WAITING",
-                            0, null, false, false))
+                            0, null, false, false, null))
                     .toList();
             return new TableStateView(tableId, false, "WAITING", List.of(), 0,
                     List.of(), seats, null, Set.of(), 0, 0, Map.of(), null, 0);
@@ -239,9 +239,11 @@ public class TableService {
 
         boolean revealAll = engine.isComplete() && engine.wentToShowdown();
         String currentActorId = engine.playerToAct() == null ? null : engine.playerToAct().id();
+        Map<String, String> lastActions = lastActionsThisStreet(engine);
 
         List<SeatView> seats = engine.players().stream()
-                .map(p -> toSeatView(engine, p, viewerId, revealAll, currentActorId, godEye))
+                .map(p -> toSeatView(engine, p, viewerId, revealAll, currentActorId, godEye,
+                        lastActions.get(p.id())))
                 .toList();
 
         List<PotView> pots = engine.pots().stream()
@@ -298,7 +300,8 @@ public class TableService {
     }
 
     private SeatView toSeatView(HandEngine engine, Player p, String viewerId,
-                                boolean revealAll, String currentActorId, boolean godEye) {
+                                boolean revealAll, String currentActorId, boolean godEye,
+                                String lastAction) {
         boolean isViewer = p.id().equals(viewerId);
         boolean reveal = godEye || isViewer || (revealAll && p.status() != PlayerStatus.FOLDED);
         List<String> hole = reveal ? p.holeCards().stream().map(Card::toString).toList() : null;
@@ -306,7 +309,32 @@ public class TableService {
         return new SeatView(
                 p.id(), p.name(), p.stack(), p.status().name(),
                 engine.committedThisStreet(p.id()), hole,
-                isButton, p.id().equals(currentActorId));
+                isButton, p.id().equals(currentActorId), lastAction);
+    }
+
+    /**
+     * 이번 스트리트에 각 플레이어가 한 마지막 액션(좌석 말풍선용). 이벤트 소싱 로그를 재생해
+     * 스트리트가 바뀔 때마다 비운다 — 새 보드 카드가 깔리면 말풍선이 사라지는 효과.
+     * 액션 금액은 BET/RAISE 만 의미 있으므로 "BET 60" 형태로 붙인다.
+     */
+    private static Map<String, String> lastActionsThisStreet(HandEngine engine) {
+        var log = engine.log();
+        HandEngine replay = log.stateAt(0);
+        Map<String, String> out = new HashMap<>();
+        var prev = replay.street();
+        for (var a : log.actions()) {
+            if (replay.street() != prev) {
+                out.clear();
+                prev = replay.street();
+            }
+            boolean sized = a.type() == ActionType.BET || a.type() == ActionType.RAISE;
+            out.put(a.playerId(), sized ? a.type().name() + " " + a.amount() : a.type().name());
+            replay.apply(a);
+        }
+        if (replay.street() != prev) { // 마지막 액션으로 스트리트가 넘어간 직후면 비운 상태로
+            out.clear();
+        }
+        return out;
     }
 
     private boolean isSeated(HandEngine engine, String playerId) {

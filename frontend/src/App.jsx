@@ -190,32 +190,30 @@ function ChipStack({ amount, cap }) {
   );
 }
 
-/* ------------------------------------------------------------------ 카운트다운 링 */
-function TimerRing({ actorId, seconds, total = 30 }) {
+/* ------------------------------------------------------------------ 카운트다운 바(줄어드는 시간 바) */
+function TimerBar({ actorId, seconds, total = 30 }) {
   const [left, setLeft] = useState(seconds ?? 0);
   useEffect(() => {
     setLeft(seconds ?? 0);
     const t = setInterval(() => setLeft((s) => (s > 0 ? s - 1 : 0)), 1000);
     return () => clearInterval(t);
   }, [actorId, seconds]);
-  const r = 20;
-  const circ = 2 * Math.PI * r;
   const frac = Math.max(0, Math.min(1, left / total));
-  const urgent = left <= 5;
   return (
-    <span className={`timer-ring ${urgent ? 'urgent' : ''}`}>
-      <svg viewBox="0 0 48 48" width="48" height="48">
-        <circle cx="24" cy="24" r={r} className="ring-bg" />
-        <circle cx="24" cy="24" r={r} className="ring-fg"
-          strokeDasharray={circ} strokeDashoffset={circ * (1 - frac)}
-          transform="rotate(-90 24 24)" />
-      </svg>
-      <span className="timer-num">{left}</span>
+    <span className={`timer-bar ${left <= 5 ? 'urgent' : ''}`}
+      title={`남은 시간 ${left}초`}>
+      <span className="tb-fill" style={{ width: `${frac * 100}%` }} />
     </span>
   );
 }
 
 /* ------------------------------------------------------------------ 좌석(테이블 둘레에 배치) */
+const BUBBLE_KO = { CHECK: '체크', CALL: '콜', BET: '벳', RAISE: '레이즈', FOLD: '폴드' };
+function bubbleText(lastAction) {
+  const [type, amount] = lastAction.split(' ');
+  return (BUBBLE_KO[type] || type) + (amount ? ` ${Number(amount).toLocaleString()}` : '');
+}
+
 function Seat({ seat, isViewer, pos, secondsLeft, actorId, isWinner, winAmount, spied }) {
   const cards = seat.holeCards
     ? seat.holeCards.map((c, i) => <Card key={i} code={c} flip delay={i * 90} />)
@@ -223,8 +221,11 @@ function Seat({ seat, isViewer, pos, secondsLeft, actorId, isWinner, winAmount, 
   return (
     <div className={`seat ${isViewer ? 'me' : ''} ${seat.currentActor ? 'acting' : ''} ${seat.status === 'FOLDED' ? 'folded' : ''} ${isWinner ? 'winner' : ''} ${spied ? 'spied' : ''}`}
       style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
-      {seat.currentActor && actorId && (
-        <div className="seat-timer"><TimerRing actorId={actorId} seconds={secondsLeft} /></div>
+      {seat.lastAction && seat.status !== 'FOLDED' && !seat.currentActor && (
+        <div className={`action-bubble ab-${seat.lastAction.split(' ')[0].toLowerCase()}`}
+          key={seat.lastAction}>
+          {bubbleText(seat.lastAction)}
+        </div>
       )}
       {isWinner && winAmount > 0 && <div className="win-amount">+{winAmount}</div>}
       {spied && <div className="spy-tag" title="전지적 관찰자 시점으로 공개된 카드">👁</div>}
@@ -237,6 +238,9 @@ function Seat({ seat, isViewer, pos, secondsLeft, actorId, isWinner, winAmount, 
           <div className="seat-stack">{seat.stack.toLocaleString()}</div>
         </div>
       </div>
+      {seat.currentActor && actorId && (
+        <div className="seat-timer"><TimerBar actorId={actorId} seconds={secondsLeft} /></div>
+      )}
       {seat.committedThisStreet > 0 && (
         <div className={`seat-bet bet-${betSide(pos)}`}>
           <ChipStack amount={seat.committedThisStreet} cap={3} />
@@ -1025,7 +1029,7 @@ export default function App() {
               ? <ActionBar state={state} mySeat={mySeat}
                   act={(type, amount) => { if (sound) SFX.chip(); act(activeId, type, amount); }} />
               : <div className="turn-hint">
-                  <TimerRing actorId={actorId} seconds={state.turnSecondsLeft} />
+                  <TimerBar actorId={actorId} seconds={state.turnSecondsLeft} />
                   {actorId?.startsWith('ai-')
                     ? <>🤖 <b>{actorId}</b> (AI)가 생각 중…</>
                     : <>지금은 <b>{actorId}</b> 차례
