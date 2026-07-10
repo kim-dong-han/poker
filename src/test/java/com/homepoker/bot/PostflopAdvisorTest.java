@@ -223,6 +223,73 @@ class PostflopAdvisorTest {
         assertTrue(d.get().reason().contains("리버 큰 벳"));
     }
 
+    /* ---------- 리버 밸류벳: 모두 체크로 온 팟 (poker_ai.png 사례 재현) ---------- */
+
+    /**
+     * 3인 림프 팟(딜 순서 = SB,BB,BTN 라운드×2): 프리플랍 전원 림프 → 플랍·턴 전원 체크.
+     * 보드 Qs 6d 2s 5d Ks — 스페이드 3장(스케어)이지만 아무도 벳한 적이 없다.
+     * bot(BTN) = AhKc 톱페어 톱키커.
+     */
+    private static HandEngine limpedToRiver3way() {
+        Deck deck = Deck.ofOrder(cards(
+                "5h", "Td", "Ah", "3h", "9d", "Kc", // 홀카드: p2, p3, bot 순 ×2
+                "Qs", "6d", "2s", "5d", "Ks"));
+        HandEngine e = new HandEngine(List.of(
+                new Player("bot", "Bot", 1000),   // index 0 = 버튼(BTN)
+                new Player("p2", "P2", 1000),     // SB
+                new Player("p3", "P3", 1000)),    // BB
+                0, 10, 20, deck);
+        e.start();
+        e.apply(Action.call("bot"));
+        e.apply(Action.call("p2"));
+        e.apply(Action.check("p3"));  // 플랍 Qs 6d 2s, 팟 60
+        e.apply(Action.check("p2"));
+        e.apply(Action.check("p3"));
+        e.apply(Action.check("bot")); // 턴 5d
+        e.apply(Action.check("p2"));
+        e.apply(Action.check("p3"));
+        e.apply(Action.check("bot")); // 리버 Ks
+        e.apply(Action.check("p2"));
+        e.apply(Action.check("p3"));
+        return e; // bot 차례
+    }
+
+    // 스케어 보드 + 멀티웨이라도, 모두 체크로 온 리버의 톱페어는 밸류벳해야 한다
+    @Test
+    void betsTopPairOnRiverWhenPotCheckedThrough() {
+        HandEngine e = limpedToRiver3way();
+        Optional<BotBrain.Decision> d = advisor.advise(e, "bot", new Random(1));
+        assertEquals("BET", d.orElseThrow().type());
+        assertEquals(30, d.get().amount(), "팟 60 의 1/2");
+        assertTrue(d.get().reason().contains("모두 체크로 온 리버"), d.get().reason());
+    }
+
+    // 반대로 앞 스트리트에 실제 액션(벳)이 있었던 팟이면 스케어 보드 경계는 유지된다
+    @Test
+    void checksTopPairOnScaryRiverAfterRealAction() {
+        Deck deck = Deck.ofOrder(cards(
+                "5h", "Td", "Kc", "3h", "9d", "Jc", // bot = KcJc
+                "Qs", "6d", "2s", "5d", "Ks"));
+        HandEngine e = new HandEngine(List.of(
+                new Player("bot", "Bot", 1000),
+                new Player("p2", "P2", 1000),
+                new Player("p3", "P3", 1000)),
+                0, 10, 20, deck);
+        e.start();
+        e.apply(Action.call("bot"));
+        e.apply(Action.call("p2"));
+        e.apply(Action.check("p3"));   // 플랍
+        e.apply(Action.bet("p2", 30)); // 앞 스트리트 실제 액션
+        e.apply(Action.fold("p3"));
+        e.apply(Action.call("bot"));   // 턴
+        e.apply(Action.check("p2"));
+        e.apply(Action.check("bot"));  // 리버 Ks — bot 톱페어
+        e.apply(Action.check("p2"));
+        Optional<BotBrain.Decision> d = advisor.advise(e, "bot", new Random(1));
+        assertEquals("CHECK", d.orElseThrow().type());
+        assertTrue(d.get().reason().contains("스케어"), d.get().reason());
+    }
+
     /* ---------- BotBrain 통합 ---------- */
 
     @Test

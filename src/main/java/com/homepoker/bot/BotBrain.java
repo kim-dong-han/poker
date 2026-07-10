@@ -29,7 +29,13 @@ public class BotBrain {
     /** 봇 판단용 몬테카를로 반복(수백 ms 내 응답을 위해 라이브 오버레이 수준). */
     private static final int DEFAULT_ITERATIONS = 1200;
 
-    static final double BET_THRESHOLD = 0.62;   // 이 이상이면 밸류벳
+    /**
+     * 밸류벳 기준 배수: 공평 지분(1/총인원)의 이 배수를 넘는 이퀴티면 밸류벳.
+     * 헤즈업이면 1.24 × 1/2 = 62%(기존 고정 기준과 동일), 상대가 늘수록 기준이 함께 내려간다.
+     * 예) 8명 상대 AA 이퀴티 ≈ 34% 는 공평 지분 11% 의 3배가 넘는 압도적 우위인데,
+     * 고정 62% 기준으로는 풀테이블에서 영원히 벳을 못 한다(림프-체크 파티의 원인).
+     */
+    static final double BET_SHARE_MULTIPLIER = 1.24;
     static final double FOLD_MARGIN = 0.03;     // 필요이퀴티보다 이만큼 낮으면 폴드
     static final double RAISE_MARGIN = 0.25;    // 필요이퀴티보다 이만큼 높으면 레이즈
     static final double JITTER = 0.03;          // 임계값 ±지터(예측 불가성)
@@ -99,8 +105,9 @@ public class BotBrain {
         long toCall = Math.min(engine.amountToCall(botId), me.stack());
 
         if (toCall == 0) {
-            // 공짜 지점: 강하면 밸류벳/레이즈(BB 옵션), 아니면 체크
-            double valueBar = BET_THRESHOLD + jitter;
+            // 공짜 지점: 강하면 밸류벳/레이즈(BB 옵션), 아니면 체크.
+            // 기준은 인원수 비례 — 멀티웨이에선 절대 이퀴티가 아니라 "공평 지분 대비 우위"로 판단
+            double valueBar = BET_SHARE_MULTIPLIER / (opponents + 1) + jitter;
             if (equity > valueBar) {
                 if (legal.contains(ActionType.BET)) {
                     return new Decision("BET", clampBet(engine, me, pot * 2 / 3),

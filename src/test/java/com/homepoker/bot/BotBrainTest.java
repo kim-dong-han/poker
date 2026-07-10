@@ -65,6 +65,27 @@ class BotBrainTest {
                 "벳 금액은 [최소벳, 스택] 범위: " + d.amount());
     }
 
+    // 밸류벳 기준은 인원수 비례: 4인 팟의 AKs(이퀴티 ≈47%)는 고정 62% 기준이면 체크지만
+    // 공평 지분(25%) 대비 압도적이므로 레이즈해야 한다(풀테이블 림프-체크 파티 방지).
+    @Test
+    void valueBarScalesWithOpponentCount() {
+        Player p0 = new Player("p0", "P0", 1000);      // BTN
+        Player p1 = new Player("p1", "P1", 1000);      // SB
+        Player bot = new Player("ai-1", "AI 1", 1000); // BB
+        Player p3 = new Player("p3", "P3", 1000);      // UTG
+        // 딜 순서 = SB(p1), BB(bot), p3, p0 라운드×2 → bot = AhKh
+        Deck deck = Deck.ofOrder(cards("2c", "Ah", "3s", "4d", "7d", "Kh", "8c", "9s",
+                "Qs", "Jd", "5c", "6h", "Tc"));
+        HandEngine e = new HandEngine(List.of(p0, p1, bot, p3), 0, 10, 20, deck);
+        e.start();
+        e.apply(Action.call("p3"));
+        e.apply(Action.call("p0"));
+        e.apply(Action.call("p1")); // 전원 림프 → bot(BB) 옵션
+
+        BotBrain.Decision d = brain.decide(e, "ai-1", 3000, new Random(42));
+        assertEquals("RAISE", d.type());
+    }
+
     // 탑셋 에이스로 작은 벳을 맞으면 절대 폴드하지 않는다(콜 또는 레이즈).
     @Test
     void neverFoldsMonsterGettingGreatOdds() {

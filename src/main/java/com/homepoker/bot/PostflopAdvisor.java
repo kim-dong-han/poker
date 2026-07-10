@@ -173,12 +173,19 @@ public class PostflopAdvisor {
                     // 팟 컨트롤: 원페어는 큰 팟 금지 — 레버리지 줄인 1/2팟
                     return bet(engine, me, pot, 1, legal, "해링턴: 원페어 턴 — 팟 컨트롤 1/2팟");
                 }
-                // 리버: 씬 밸류 1/2팟. 단 플러쉬/4연속 완성 보드는 겁먹지 않되 체크로 조절
+                // 리버: 상대 "라인"부터 본다 — 포스트플랍에 벳이 한 번도 없었다면(모두 체크로
+                // 온 팟) 상대 레인지가 스케어 카드·멀티웨이와 무관하게 약함 → 밸류벳이 정답
+                // (교재: "겁먹은 체크는 대형 실수. 상대 라인이 그 강함과 일치하는지 보고 밸류벳")
+                if (!hist.postflopBetSeen()) {
+                    return bet(engine, me, pot, 1, legal,
+                            "해링턴: 모두 체크로 온 리버 — 상대 라인이 약함, 원페어 밸류벳 1/2팟(겁먹은 체크는 실수)");
+                }
+                // 앞 스트리트에 액션이 있었던 팟만 스케어/멀티웨이 경계를 적용한다
                 if (scaryRiver(engine.board())) {
-                    return check(legal, "해링턴: 리버 스케어 보드(플러쉬/스트레이트 완성) — 원페어 체크");
+                    return check(legal, "해링턴: 리버 스케어 보드(플러쉬/스트레이트 완성) + 앞 스트리트 액션 — 원페어 체크");
                 }
                 if (multiway) {
-                    return check(legal, "해링턴: 멀티웨이 리버 — 원페어 씬 밸류 생략(체크)");
+                    return check(legal, "해링턴: 멀티웨이 리버 + 앞 스트리트 액션 — 원페어 씬 밸류 생략(체크)");
                 }
                 return bet(engine, me, pot, 1, legal, "해링턴: 리버 씬 밸류 1/2팟(겁먹은 체크는 실수)");
             }
@@ -465,8 +472,12 @@ public class PostflopAdvisor {
 
     /* ---------- 핸드 히스토리(이벤트 소싱 재생) ---------- */
 
-    /** 프리플랍 어그레서 여부·이번 스트리트에서 내 벳이 레이즈 맞았는지·플랍 체크 통과 여부. */
-    record Hist(boolean preflopAggressor, boolean raisedOverMyBet, boolean flopCheckedThrough) {}
+    /**
+     * 프리플랍 어그레서 여부·이번 스트리트에서 내 벳이 레이즈 맞았는지·플랍 체크 통과 여부·
+     * 포스트플랍에 벳/레이즈가 한 번이라도 있었는지(상대 라인 판독의 원료).
+     */
+    record Hist(boolean preflopAggressor, boolean raisedOverMyBet, boolean flopCheckedThrough,
+                boolean postflopBetSeen) {}
 
     static Hist replay(HandLog log, String botId, Street current) {
         HandEngine e = log.stateAt(0);
@@ -475,6 +486,7 @@ public class PostflopAdvisor {
         boolean raisedOverMe = false;
         boolean flopHadBet = false;
         boolean sawFlop = false;
+        boolean postflopBet = false;
         Street prev = e.street();
         for (Action a : log.actions()) {
             Street st = e.street();
@@ -485,6 +497,9 @@ public class PostflopAdvisor {
             }
             if (st == Street.PREFLOP && a.type() == ActionType.RAISE) {
                 lastPreflopRaiser = a.playerId();
+            }
+            if (st != Street.PREFLOP && (a.type() == ActionType.BET || a.type() == ActionType.RAISE)) {
+                postflopBet = true;
             }
             if (st == Street.FLOP) {
                 sawFlop = true;
@@ -502,7 +517,8 @@ public class PostflopAdvisor {
             }
             e.apply(a);
         }
-        return new Hist(botId.equals(lastPreflopRaiser), raisedOverMe, sawFlop && !flopHadBet);
+        return new Hist(botId.equals(lastPreflopRaiser), raisedOverMe, sawFlop && !flopHadBet,
+                postflopBet);
     }
 
     /* ---------- 헬퍼 ---------- */

@@ -241,12 +241,14 @@ public class PreflopAdvisor {
 
     /**
      * 좌석 → 책 포지션(UTG/MP/CO/BTN/SB/BB). 6인 미만이면 비는 앞 포지션부터 제거
-     * (예: 4인 = CO,BTN,SB,BB). 헤즈업은 버튼이 SB. 7인 이상은 차트 밖(null 반환 없음 → 빈 맵).
+     * (예: 4인 = CO,BTN,SB,BB). 헤즈업은 버튼이 SB.
+     * 7~9인은 늘어난 얼리 좌석을 전부 "UTG"(가장 타이트한 레인지)로 취급해 차트를 계속 쓴다 —
+     * 차트가 꺼져 이퀴티 폴백(림프-체크 성향)으로 떨어지는 것보다 훨씬 자연스럽다.
      */
     static Map<String, String> positions(List<Player> players, int buttonSeat) {
         int n = players.size();
         Map<String, String> out = new HashMap<>();
-        if (n < 2 || n > 6) {
+        if (n < 2 || n > 9) {
             return out;
         }
         if (n == 2) {
@@ -259,7 +261,8 @@ public class PreflopAdvisor {
         String[] nonBlind = {"UTG", "MP", "CO", "BTN"};
         int m = n - 2;
         for (int i = 0; i < m; i++) {
-            out.put(players.get((buttonSeat + 3 + i) % n).id(), nonBlind[4 - m + i]);
+            out.put(players.get((buttonSeat + 3 + i) % n).id(),
+                    nonBlind[Math.max(0, 4 - m + i)]);
         }
         return out;
     }

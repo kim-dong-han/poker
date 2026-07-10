@@ -164,4 +164,22 @@ class PreflopAdvisorTest {
         assertEquals("BB", p2.get("b"));
         assertFalse(p2.containsKey("c"));
     }
+
+    // 7~9인: 늘어난 얼리 좌석은 전부 UTG(최고 타이트 레인지)로 차트를 계속 쓴다
+    @Test
+    void positionsMapExtendsToNinePlayers() {
+        List<Player> nine = java.util.stream.IntStream.range(0, 9)
+                .mapToObj(i -> new Player("p" + i, "P" + i, 100)).toList();
+        Map<String, String> pos = PreflopAdvisor.positions(nine, 0);
+        assertEquals(9, pos.size());
+        assertEquals("SB", pos.get("p1"));
+        assertEquals("BB", pos.get("p2"));
+        assertEquals("UTG", pos.get("p3"));
+        assertEquals("UTG", pos.get("p4"));
+        assertEquals("UTG", pos.get("p5"));
+        assertEquals("UTG", pos.get("p6"));
+        assertEquals("MP", pos.get("p7"));
+        assertEquals("CO", pos.get("p8"));
+        assertEquals("BTN", pos.get("p0"));
+    }
 }
