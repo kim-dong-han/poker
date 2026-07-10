@@ -2,6 +2,104 @@ import React, { useEffect, useRef, useState } from 'react';
 import { usePokerTable } from './usePokerTable.js';
 
 const SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
+const prettyCard = (c) => (c ? c.slice(0, -1) + (SUIT[c.slice(-1)] || c.slice(-1)) : '');
+
+/* ------------------------------------------------------------------ 초보자용 용어 사전
+   복기·AI 판단 로그·리더보드에 나오는 포커 용어를 클릭하면 설명이 펼쳐진다. */
+const GLOSSARY = {
+  '필요이퀴티': '콜이 손해가 아니려면 필요한 최소 승률. 콜 금액 ÷ (팟 + 콜 금액)으로 계산해요. 예: 팟 100에 콜 50 → 50÷150 = 33%. 승률이 이보다 높으면 콜이 이득입니다.',
+  '이퀴티': '지금 카드로 끝까지 갔을 때 이길 확률(승률). 상대 카드를 모르기 때문에 무작위로 수천 번 시뮬레이션(몬테카를로)해 평균낸 값이에요.',
+  '팟오즈': '팟 크기 대비 콜 금액의 배당. "필요이퀴티"와 같은 개념의 다른 표현 — 배당이 좋을수록 낮은 승률로도 콜할 수 있어요.',
+  '레이즈마진': '필요 승률을 이만큼(%p) 크게 넘을 때만 레이즈한다는 봇의 여유 기준. 아슬아슬한 우위로는 콜만 해요.',
+  '마진': '필요 승률보다 조금 낮다고 바로 접지 않도록 두는 여유 폭 — 시뮬레이션 오차를 감안한 안전장치예요.',
+  '밸류벳': '내가 이기고 있다고 볼 때, 나보다 약한 핸드의 콜을 받아 이득을 보려는 베팅.',
+  '씬 밸류': '아슬아슬하게 이기고 있는 핸드로 하는 얇은 밸류벳. 겁먹고 체크하면 그만큼 이득을 놓쳐요.',
+  'C-벳': '컨티뉴에이션 벳 — 프리플랍에서 레이즈한 사람이 플랍에서도 이어가는 베팅. 상대가 플랍을 못 맞췄을 확률(약 2/3)을 노려요.',
+  '세미블러프': '지금은 지고 있지만 완성되면 이기는 드로우로 하는 베팅. 상대가 접어도 이득, 카드가 떠도 이득 — 이기는 길이 2개예요.',
+  '블러프': '이길 수 없는 핸드로 상대를 폴드시키려는 베팅.',
+  '콤보 드로우': '플러쉬드로우+스트레이트드로우처럼 드로우가 겹친 핸드. 아웃이 12개 이상이라 톱페어 상대로도 거의 반반이에요.',
+  '드로우': '아직 미완성이지만 특정 카드가 나오면 강해지는 핸드(플러쉬드로우, 스트레이트드로우 등).',
+  '아웃': '내 핸드를 완성시켜 주는 남은 카드 수. 아웃 1개 ≈ 다음 카드 1장당 약 2% 승률(9아웃 플러쉬드로우 ≈ 19%).',
+  '에어': '페어도 드로우도 없는, 아무것도 못 맞춘 핸드.',
+  '미디엄': '톱페어에 못 미치는 애매한 페어. 목표는 팟을 키우지 않고 싸게 쇼다운까지 가는 것.',
+  '오버페어': '보드의 가장 높은 카드보다 큰 포켓페어(예: 보드 K72에 내가 AA).',
+  '톱페어': '보드의 가장 높은 카드와 짝을 이룬 페어(예: 보드 K72에 내가 KQ).',
+  '원페어': '페어 하나뿐인 핸드. 작은 팟용 핸드라 팟이 커질수록 지고 있을 확률이 높아요.',
+  '셋/투페어': '셋 = 포켓페어가 보드와 만나 만든 숨은 트리플, 투페어 = 홀카드 두 장이 모두 보드와 짝. 둘 다 팟을 키울 만한 강한 핸드예요.',
+  '괴물': '스트레이트 이상(스트레이트·플러쉬·풀하우스…)의 최강급 핸드. 과제는 상대에게서 최대한 많은 칩을 뽑는 것.',
+  '쇼다운': '베팅이 모두 끝난 뒤 카드를 공개해 승자를 가리는 것.',
+  '팟 컨트롤': '애매한 핸드로는 팟이 커지지 않게 베팅을 줄이거나 체크하는 것 — "큰 팟엔 큰 핸드"가 원칙이에요.',
+  '콜스테이션': '어떤 베팅에도 잘 접지 않는 상대. 블러프가 안 통하니 좋은 핸드로 밸류벳만 해야 해요.',
+  '니트': '아주 좋은 핸드만 플레이하는 극단적으로 타이트한 상대. 이런 상대의 베팅·레이즈는 진짜예요.',
+  'LAG': '루즈-어그레시브 — 많은 핸드로 공격적으로 치는 상대. 베팅을 다 믿을 필요는 없지만, 강한 저항엔 물러나요.',
+  '3벳': '오픈 레이즈에 대한 재레이즈(블라인드가 1번째, 오픈이 2번째 베팅이라 "3벳"). 강한 핸드의 신호예요.',
+  '4벳': '3벳에 대한 재재레이즈. 보통 최상위 핸드(AA/KK급)의 신호.',
+  '5벳': '4벳에 대한 재레이즈 — 100bb 게임에선 사실상 올인이에요.',
+  '스퀴즈': '오픈 레이즈에 콜러까지 있을 때 크게 재레이즈해 양쪽을 동시에 압박하는 플레이.',
+  '레인지': '그 상황에서 상대가 들 수 있는 모든 핸드의 집합. 한 핸드를 콕 집는 게 아니라 범위로 생각해요.',
+  '스틸': '모두가 약해 보일 때 팟을 훔치려는 베팅.',
+  '스케어 보드': '드로우가 완성됐을 법한 무서운 보드(같은 무늬 3장, 스트레이트 연결 완성 등).',
+  '마른 보드': '드로우가 없는 흩어진 보드(예: Q72 무늬 제각각). 아무도 못 맞췄을 확률이 높아 블러프(C-벳)가 잘 통해요.',
+  '젖은 보드': '연결된 숫자·같은 무늬가 깔려 드로우가 많은 보드(예: J T 9 투톤). 상대가 따라올 이유가 많아요.',
+  '페어드 보드': '같은 숫자 페어가 깔린 보드(예: 8 8 2). 서로 맞추기 어려워 마른 보드처럼 취급해요.',
+  'A하이 보드': '가장 높은 카드가 A인 보드. 프리플랍 레이저(A를 많이 듦)에게 유리한 보드예요.',
+  '몬테카를로': '무작위 시뮬레이션을 수천 번 반복해 평균으로 확률을 구하는 방법.',
+  'GTO': '게임이론 최적 전략(Game Theory Optimal). 여기 판정은 GTO가 아니라 단순한 "승률 vs 배당" 비교예요.',
+  '트랩': '강한 핸드를 약한 척 체크/콜만 하며 상대의 베팅을 유도하는 것.',
+  '콜다운': '레이즈 없이 리버까지 콜로만 따라가는 것.',
+  '오버콜': '이길 확률이 필요이퀴티에 못 미치는데 콜한 실수 — 배당보다 비싸게 산 콜.',
+  '오버폴드': '이길 확률이 충분한데 폴드한 실수 — 장기적으로 이득인 콜을 버린 셈이에요.',
+  '판정 지점': '이퀴티 계산이 가능한 콜/폴드 결정 지점의 수. 이 지점들만 실수 여부를 판정해요.',
+  'VPIP': '자발적으로 팟에 돈을 넣은 핸드 비율(%). 6인 기준 15~30이 보통 — 높을수록 아무 핸드나 치는 루즈한 스타일.',
+  'PFR': '프리플랍에서 레이즈한 핸드 비율(%). VPIP와 가까울수록 공격적인 스타일이에요.',
+  'net': '누적 순수익 — 딴 칩에서 잃은 칩을 뺀 값.',
+  'EV': '기대값(Expected Value) — 같은 결정을 무수히 반복했을 때의 평균 손익.',
+  'bb': '빅블라인드 단위. -2bb = 빅블라인드 2개만큼 손해. 판돈 크기와 무관하게 비교할 수 있는 단위예요.',
+  '차트': '프리플랍 전략표 — 포지션·상황별로 어떤 핸드를 레이즈/콜/폴드할지 정리한 표(봇은 BTS 교재 차트를 따라요).',
+  '해링턴': '댄 해링턴의 캐시게임 교재. 봇의 포스트플랍(플랍 이후) 전략 출처예요.',
+  'UTG': '가장 먼저 액션하는 자리(언더 더 건) — 가장 불리해서 좋은 핸드만 쳐요.',
+  'BTN': '딜러 버튼 자리 — 항상 마지막에 액션하는 가장 유리한 자리.',
+  'CO': '버튼 바로 앞자리(컷오프). 후반 포지션이라 오픈 범위가 넓어요.',
+  'MP': '중간 포지션(미들 포지션).',
+  'SB': '스몰 블라인드 자리 — 포스트플랍에서 가장 먼저 액션해야 해서 불리해요.',
+  'BB': '빅 블라인드 자리. 이미 돈을 냈으니 좋은 배당으로 방어(콜)할 수 있어요.',
+};
+
+const TERM_RE = new RegExp(
+  `(${Object.keys(GLOSSARY)
+    .sort((a, b) => b.length - a.length)
+    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|')})`,
+  'g',
+);
+
+/** 클릭하면 바로 아래에 설명이 펼쳐지는 용어. */
+function Term({ word }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className={`term ${open ? 'open' : ''}`}
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}>
+        {word}
+      </button>
+      {open && (
+        <span className="term-note" onClick={(e) => e.stopPropagation()}>
+          💡 <b>{word}</b> — {GLOSSARY[word]}
+        </span>
+      )}
+    </>
+  );
+}
+
+/** 문장 속의 용어(점선 밑줄)를 클릭 가능한 <Term>으로 바꿔 렌더링한다. */
+function JargonText({ text }) {
+  if (text == null) return null;
+  return (
+    <>
+      {String(text).split(TERM_RE).map((p, i) => (GLOSSARY[p] ? <Term key={i} word={p} /> : p))}
+    </>
+  );
+}
 
 /* ------------------------------------------------------------------ 효과음 (WebAudio 합성 — 파일 불필요) */
 let audioCtx = null;
@@ -262,12 +360,15 @@ function BotReasonPanel({ god }) {
         <div className="muted sm-note">아직 공개된 AI 판단이 없습니다 — 진행 중 핸드의 판단은
           종료 후(또는 👁 관전 중) 공개됩니다.</div>
       )}
+      {last.length > 0 && (
+        <div className="muted sm-note">점선 밑줄 용어(<Term word="이퀴티" /> 등)를 누르면 설명이 펼쳐집니다.</div>
+      )}
       {last.map((a, i) => (
         <div key={i} className="bot-reason-row">
           <span className="br-meta">#{a.handNo} {translateStreet(a.street)}</span>
           <b>🤖 {a.name}</b>
           <span className="br-act">{ACTION_KO[a.action] || a.action}{a.amount > 0 ? ` ${a.amount}` : ''}</span>
-          <span className="br-why">{a.reason}</span>
+          <span className="br-why"><JargonText text={a.reason} /></span>
         </div>
       ))}
     </div>
@@ -289,7 +390,13 @@ function Leaderboard() {
       <div className="panel-title">ROI 리더보드</div>
       <table>
         <thead>
-          <tr><th>#</th><th>플레이어</th><th>net</th><th>핸드</th><th>승</th><th>VPIP</th><th>PFR</th></tr>
+          <tr>
+            <th>#</th><th>플레이어</th>
+            <th><JargonText text="net" /></th>
+            <th>핸드</th><th>승</th>
+            <th><JargonText text="VPIP" /></th>
+            <th><JargonText text="PFR" /></th>
+          </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
@@ -350,6 +457,20 @@ function translateMistakeType(t) {
   return `${translateStreet(street)} ${action === 'CALL' ? '오버콜' : '오버폴드'}`;
 }
 
+/** 실수 판정을 초보자 문장으로 풀어쓴다(용어는 JargonText 로 감싸 클릭 설명 제공). */
+function mistakeExplain(d) {
+  const eq = pct(d.equity);
+  const req = pct(d.requiredEquity);
+  const loss = d.evLossBb.toFixed(1);
+  return d.action === 'CALL'
+    ? `왜 실수인가요? 이 콜이 본전이 되려면 승률이 최소 ${req}%(필요이퀴티)는 돼야 했는데, `
+      + `실제 이길 확률(이퀴티)은 ${eq}%뿐이었어요. 부족한 확률만큼 밑지는 거래라, `
+      + `같은 콜을 반복하면 평균 ${loss}bb씩 잃습니다. 이런 지점은 폴드가 이득이에요.`
+    : `왜 실수인가요? 폴드했지만 이길 확률(이퀴티)이 ${eq}%로, 콜 비용 대비 필요한 `
+      + `${req}%(필요이퀴티)보다 높았어요. 배당이 남는 콜을 접은 셈이라 평균 ${loss}bb를 `
+      + `놓쳤습니다. 이런 지점은 콜이 이득이에요.`;
+}
+
 function ReplayPanel({ onClose }) {
   const [hands, setHands] = useState([]);
   const [sel, setSel] = useState(null);
@@ -382,7 +503,9 @@ function ReplayPanel({ onClose }) {
     <div className="replay-panel">
       <div className="replay-head">
         <b>핸드 복기</b>
-        <span className="muted">이퀴티 vs 팟오즈로 EV 손실 실수 자동 감지</span>
+        <span className="muted">
+          <JargonText text="이퀴티 vs 팟오즈로 EV 손실 실수 자동 감지" /> · 점선 용어를 누르면 설명
+        </span>
         <button className="ghost sm" onClick={onClose}>닫기 ×</button>
       </div>
 
@@ -400,12 +523,16 @@ function ReplayPanel({ onClose }) {
       {frame && (
         <div className="replay-body">
           {worst && (
-            <div className="mistake-banner worst" onClick={() => setStep(worst.step + 1)}
-              title="클릭하면 그 지점으로 이동">
-              ⚠ 최대 실수: <b>{worst.playerName}</b> {translateStreet(worst.street)}{' '}
-              {worst.action === 'CALL' ? '콜' : '폴드'} — 이퀴티 {pct(worst.equity)}% vs 필요{' '}
-              {pct(worst.requiredEquity)}% (<b>-{worst.evLossBb.toFixed(1)}bb</b>)
-            </div>
+            <>
+              <div className="mistake-banner worst" onClick={() => setStep(worst.step + 1)}
+                title="클릭하면 그 지점으로 이동">
+                ⚠ 최대 실수: <b>{worst.playerName}</b> {translateStreet(worst.street)}{' '}
+                {worst.action === 'CALL' ? '콜' : '폴드'} —{' '}
+                <JargonText text={`이퀴티 ${pct(worst.equity)}% vs 필요이퀴티 ${pct(worst.requiredEquity)}%`} />{' '}
+                (<b>-{worst.evLossBb.toFixed(1)}bb</b>)
+              </div>
+              <div className="mistake-explain"><JargonText text={mistakeExplain(worst)} /></div>
+            </>
           )}
           {review && !worst && <div className="mistake-banner clean">✔ 이 핸드에서 감지된 실수 없음</div>}
 
@@ -430,11 +557,14 @@ function ReplayPanel({ onClose }) {
             </div>
             <div className="replay-action">{frame.action ? `▶ ${frame.action}` : '핸드 시작(딜·블라인드 직후)'}</div>
             {curMistake && (
-              <div className="mistake-banner">
-                ⚠ <b>{curMistake.playerName}</b>의 {curMistake.action === 'CALL' ? '콜' : '폴드'}:
-                이퀴티 {pct(curMistake.equity)}%, 필요 이퀴티 {pct(curMistake.requiredEquity)}%
-                → EV <b>-{curMistake.evLossBb.toFixed(1)}bb</b>
-              </div>
+              <>
+                <div className="mistake-banner">
+                  ⚠ <b>{curMistake.playerName}</b>의 {curMistake.action === 'CALL' ? '콜' : '폴드'}:{' '}
+                  <JargonText text={`이퀴티 ${pct(curMistake.equity)}%, 필요이퀴티 ${pct(curMistake.requiredEquity)}% → EV`} />{' '}
+                  <b>-{curMistake.evLossBb.toFixed(1)}bb</b>
+                </div>
+                <div className="mistake-explain"><JargonText text={mistakeExplain(curMistake)} /></div>
+              </>
             )}
           </div>
 
@@ -451,7 +581,7 @@ function ReplayPanel({ onClose }) {
               onClick={() => setStep(step + 1)}>다음 ▶</button>
           </div>
           <ShuffleProofBox proof={sel != null ? fairness?.proofs?.[sel] : null} />
-          {review && <div className="assumption">{review.assumption}</div>}
+          {review && <div className="assumption"><JargonText text={review.assumption} /></div>}
         </div>
       )}
 
@@ -460,7 +590,13 @@ function ReplayPanel({ onClose }) {
           <div className="panel-title">세션 누적 리포트</div>
           <table>
             <thead>
-              <tr><th>플레이어</th><th>판정 지점</th><th>실수</th><th>EV 손실 합</th><th>최다 유형</th></tr>
+              <tr>
+                <th>플레이어</th>
+                <th><JargonText text="판정 지점" /></th>
+                <th>실수</th>
+                <th><JargonText text="EV" /> 손실 합</th>
+                <th>최다 유형</th>
+              </tr>
             </thead>
             <tbody>
               {session.map((r) => (
@@ -471,11 +607,48 @@ function ReplayPanel({ onClose }) {
                   <td className={r.totalEvLossBb > 0 ? 'neg' : 'pos'}>
                     {r.totalEvLossBb > 0 ? `-${r.totalEvLossBb.toFixed(1)}bb` : '0bb'}
                   </td>
-                  <td>{r.topMistakeType ? translateMistakeType(r.topMistakeType) : '—'}</td>
+                  <td>{r.topMistakeType ? <JargonText text={translateMistakeType(r.topMistakeType)} /> : '—'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ 내 승률 배지(클릭 → 계산 근거 설명) */
+function EquityBadge({ state, mySeat }) {
+  const [open, setOpen] = useState(false);
+  if (state.viewerEquity == null) return null;
+  const eq = Math.round(state.viewerEquity * 100);
+  const opps = state.seats.filter(
+    (s) => s.playerId !== mySeat?.playerId && s.status !== 'FOLDED',
+  ).length;
+  const myCards = (mySeat?.holeCards || []).map(prettyCard).join(' ');
+  const boardTxt = state.board.length > 0 ? state.board.map(prettyCard).join(' ') : '아직 없음(프리플랍)';
+  return (
+    <div className="equity-wrap">
+      <button type="button" className="equity" onClick={() => setOpen((v) => !v)}
+        title="클릭하면 이 숫자가 어떻게 계산됐는지 설명이 나옵니다">
+        내 승률 {eq}% <span className="eq-q">?</span>
+      </button>
+      {open && (
+        <div className="equity-pop">
+          <b>이 승률은 어떻게 나온 숫자인가요?</b>
+          <p>
+            내 카드 <b>{myCards || '?'}</b> 와 보드(<b>{boardTxt}</b>)는 그대로 두고,
+            상대 <b>{opps}명</b>의 홀카드와 아직 안 나온 보드 카드를 남은 덱에서
+            <b> 무작위로 수천 번</b> 나눠 끝까지 돌려본 시뮬레이션(몬테카를로) 결과예요.
+            그중 약 <b>{eq}%</b>를 이겼다는 뜻입니다(무승부는 절반으로 계산).
+          </p>
+          <p className="muted">
+            상대의 실제 카드를 모르니 "상대는 아무 두 장이나 들 수 있다"고 가정한 값이에요.
+            상대가 레이즈로 강함을 보였다면 실제 승률은 이보다 낮을 수 있고,
+            숫자가 매번 조금씩 흔들리는 것도 매번 새로 시뮬레이션하기 때문입니다.
+          </p>
+          <button type="button" className="ghost sm" onClick={() => setOpen(false)}>닫기 ×</button>
         </div>
       )}
     </div>
@@ -822,11 +995,7 @@ export default function App() {
                     <ChipStack amount={state.pot} cap={4} />
                     <span className="pot-label">POT</span><b>{state.pot.toLocaleString()}</b>
                   </div>
-                  {state.viewerEquity != null && (
-                    <div className="equity" title="내 홀카드 기준 몬테카를로 승률">
-                      내 승률 {Math.round(state.viewerEquity * 100)}%
-                    </div>
-                  )}
+                  <EquityBadge state={state} mySeat={mySeat} />
                   {commitment && (
                     <div className="fair-badge"
                       title={`셔플 커밋(SHA-256): ${commitment}\n딜 전에 공개된 해시 — 핸드 종료 후 '핸드 복기'에서 솔트·덱이 공개되면 브라우저가 재계산해 검증합니다.`}>
