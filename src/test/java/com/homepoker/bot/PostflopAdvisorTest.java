@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class PostflopAdvisorTest {
 
-    private static final PostflopAdvisor advisor = new PostflopAdvisor(1.0, 1.0);
+    private static final PostflopAdvisor advisor = new PostflopAdvisor(1.0, 1.0, 1.0);
 
     private static List<Card> cards(String... notations) {
         List<Card> list = new ArrayList<>();
@@ -264,6 +264,17 @@ class PostflopAdvisorTest {
         assertTrue(d.get().reason().contains("모두 체크로 온 리버"), d.get().reason());
     }
 
+    // 같은 밸류 스팟이라도 100% 고정이 아니라 riverValueFreq 빈도로 섞는다(착취 방지) —
+    // 빈도 0 이면 체크로 범위를 위장한다
+    @Test
+    void riverValueBetIsFrequencyMixedNotFixed() {
+        PostflopAdvisor never = new PostflopAdvisor(1.0, 1.0, 0.0);
+        HandEngine e = limpedToRiver3way();
+        Optional<BotBrain.Decision> d = never.advise(e, "bot", new Random(1));
+        assertEquals("CHECK", d.orElseThrow().type());
+        assertTrue(d.get().reason().contains("빈도 혼합"), d.get().reason());
+    }
+
     // 반대로 앞 스트리트에 실제 액션(벳)이 있었던 팟이면 스케어 보드 경계는 유지된다
     @Test
     void checksTopPairOnScaryRiverAfterRealAction() {
@@ -295,7 +306,7 @@ class PostflopAdvisorTest {
     @Test
     void botBrainUsesHarringtonRulesPostflop() {
         BotBrain brain = new BotBrain(new EquityService(), PreflopAdvisor.disabled(),
-                new PostflopAdvisor(1.0, 1.0));
+                new PostflopAdvisor(1.0, 1.0, 1.0));
         HandEngine e = flop("Ah", "5c", "Kd", "3s", "Qs", "6d", "2h");
         e.apply(Action.check("me"));
         BotBrain.Decision d = brain.decide(e, "bot", 100, new Random(1));
@@ -322,7 +333,7 @@ class PostflopAdvisorTest {
     @Test
     void neverBluffsCallingStation() {
         // me = 콜스테이션(VPIP 100%, AF 0): 에어 마른 보드라도 C-벳 금지
-        PostflopAdvisor a = new PostflopAdvisor(statsWith("me", true, false, 0, 2), 1.0, 1.0);
+        PostflopAdvisor a = new PostflopAdvisor(statsWith("me", true, false, 0, 2), 1.0, 1.0, 1.0);
         HandEngine e = flop("Ah", "5c", "Kd", "3s", "Qs", "6d", "2h");
         e.apply(Action.check("me"));
         Optional<BotBrain.Decision> d = a.advise(e, "bot", new Random(1));
@@ -333,7 +344,7 @@ class PostflopAdvisorTest {
     @Test
     void callsDownVsLagRaise() {
         // me = LAG(VPIP/PFR 100%, AF 3): 내 벳에 레이즈 맞아도 역해석 → 콜다운
-        PostflopAdvisor a = new PostflopAdvisor(statsWith("me", true, true, 3, 1), 1.0, 1.0);
+        PostflopAdvisor a = new PostflopAdvisor(statsWith("me", true, true, 3, 1), 1.0, 1.0, 1.0);
         HandEngine e = flop("As", "Qd", "Kd", "3s", "Qc", "6h", "2h");
         e.apply(Action.check("me"));
         e.apply(Action.bet("bot", 60));
@@ -346,7 +357,7 @@ class PostflopAdvisorTest {
     @Test
     void foldsOnePairToNitTurnBet() {
         // me = 니트(VPIP 0%): 니트의 턴 큰 베팅 = 진짜 → 톱페어 폴드
-        PostflopAdvisor a = new PostflopAdvisor(statsWith("me", false, false, 0, 0), 1.0, 1.0);
+        PostflopAdvisor a = new PostflopAdvisor(statsWith("me", false, false, 0, 0), 1.0, 1.0, 1.0);
         HandEngine e = flop("As", "Qd", "Kd", "3s", "Qc", "6h", "2h");
         e.apply(Action.check("me"));
         e.apply(Action.check("bot")); // 플랍 체크 통과 → 턴 팟 120

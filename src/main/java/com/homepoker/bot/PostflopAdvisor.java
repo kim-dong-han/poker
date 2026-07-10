@@ -64,30 +64,34 @@ public class PostflopAdvisor {
     private final boolean enabled;
     private final double cbetFreq;
     private final double stealFreq;
+    private final double riverValueFreq;
     private final StatsService statsService; // null 허용 — 상대 모델링 없이 동작
 
     @org.springframework.beans.factory.annotation.Autowired
     public PostflopAdvisor(StatsService statsService,
                            @Value("${poker.bot.cbet-freq:0.7}") double cbetFreq,
-                           @Value("${poker.bot.steal-freq:0.4}") double stealFreq) {
-        this(true, cbetFreq, stealFreq, statsService);
+                           @Value("${poker.bot.steal-freq:0.4}") double stealFreq,
+                           @Value("${poker.bot.river-value-freq:0.8}") double riverValueFreq) {
+        this(true, cbetFreq, stealFreq, riverValueFreq, statsService);
     }
 
     /** 상대 모델링 없이 규칙만 쓰는 조언자(단위테스트용). */
-    public PostflopAdvisor(double cbetFreq, double stealFreq) {
-        this(true, cbetFreq, stealFreq, null);
+    public PostflopAdvisor(double cbetFreq, double stealFreq, double riverValueFreq) {
+        this(true, cbetFreq, stealFreq, riverValueFreq, null);
     }
 
-    private PostflopAdvisor(boolean enabled, double cbetFreq, double stealFreq, StatsService statsService) {
+    private PostflopAdvisor(boolean enabled, double cbetFreq, double stealFreq,
+                            double riverValueFreq, StatsService statsService) {
         this.enabled = enabled;
         this.cbetFreq = cbetFreq;
         this.stealFreq = stealFreq;
+        this.riverValueFreq = riverValueFreq;
         this.statsService = statsService;
     }
 
     /** 항상 empty(기존 이퀴티 로직만 검증하는 테스트·비활성 환경용). */
     public static PostflopAdvisor disabled() {
-        return new PostflopAdvisor(false, 0.7, 0.4, null);
+        return new PostflopAdvisor(false, 0.7, 0.4, 0.8, null);
     }
 
     /**
@@ -175,10 +179,15 @@ public class PostflopAdvisor {
                 }
                 // 리버: 상대 "라인"부터 본다 — 포스트플랍에 벳이 한 번도 없었다면(모두 체크로
                 // 온 팟) 상대 레인지가 스케어 카드·멀티웨이와 무관하게 약함 → 밸류벳이 정답
-                // (교재: "겁먹은 체크는 대형 실수. 상대 라인이 그 강함과 일치하는지 보고 밸류벳")
+                // (교재: "겁먹은 체크는 대형 실수. 상대 라인이 그 강함과 일치하는지 보고 밸류벳").
+                // 단 100% 고정이면 벳=원페어 확정/체크=노페어 확정으로 읽혀 착취당하므로
+                // riverValueFreq 빈도로 섞는다 — 가끔 체크해 체크 범위에도 밸류를 남긴다.
                 if (!hist.postflopBetSeen()) {
-                    return bet(engine, me, pot, 1, legal,
-                            "해링턴: 모두 체크로 온 리버 — 상대 라인이 약함, 원페어 밸류벳 1/2팟(겁먹은 체크는 실수)");
+                    if (rng.nextDouble() < riverValueFreq) {
+                        return bet(engine, me, pot, 1, legal,
+                                "해링턴: 모두 체크로 온 리버 — 상대 라인이 약함, 원페어 밸류벳 1/2팟(겁먹은 체크는 실수)");
+                    }
+                    return check(legal, "해링턴: 리버 밸류 스팟이지만 빈도 혼합 — 체크(범위 위장)");
                 }
                 // 앞 스트리트에 액션이 있었던 팟만 스케어/멀티웨이 경계를 적용한다
                 if (scaryRiver(engine.board())) {
@@ -187,7 +196,10 @@ public class PostflopAdvisor {
                 if (multiway) {
                     return check(legal, "해링턴: 멀티웨이 리버 + 앞 스트리트 액션 — 원페어 씬 밸류 생략(체크)");
                 }
-                return bet(engine, me, pot, 1, legal, "해링턴: 리버 씬 밸류 1/2팟(겁먹은 체크는 실수)");
+                if (rng.nextDouble() < riverValueFreq) {
+                    return bet(engine, me, pot, 1, legal, "해링턴: 리버 씬 밸류 1/2팟(겁먹은 체크는 실수)");
+                }
+                return check(legal, "해링턴: 리버 밸류 스팟이지만 빈도 혼합 — 체크(범위 위장)");
             }
             case MEDIUM -> {
                 return check(legal, "해링턴: 미디엄 핸드 — 목표는 싸게 쇼다운(체크)");
