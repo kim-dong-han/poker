@@ -131,6 +131,49 @@ class TableServiceTest {
         assertEquals(0L, board.stream().mapToLong(r -> r.netProfit()).sum()); // 제로섬
     }
 
+    // 동결 회귀(스크린샷 55·56 실제 원인): 올인에서 져 버스트한 플레이어는 좌석이 즉시
+    // 비워지지만, 브로드캐스트 대상에는 남아 마지막 종료 화면을 반드시 받아야 한다.
+    @Test
+    void bustedPlayerStillReceivesFinalBroadcast() {
+        TableService service = newService();
+        String busted = null;
+        // 동점(스플릿)이면 버스트가 안 나므로 몇 판 반복 — 스택이 같아 한 판이면 대부분 결판
+        for (int attempt = 0; attempt < 30 && busted == null; attempt++) {
+            service.join("t1", "alice", "Alice", 1000);
+            service.join("t1", "bob", "Bob", 1000);
+            service.startHand("t1");
+            int guard = 0;
+            while (service.viewFor("t1", "alice").handInProgress()) {
+                if (guard++ > 20) {
+                    throw new AssertionError("올인 핸드가 끝나지 않음");
+                }
+                TableStateView v = service.viewFor("t1", "alice");
+                String actor = v.currentActorId();
+                TableStateView av = service.viewFor("t1", actor);
+                if (av.viewerLegalActions().contains("RAISE")) {
+                    SeatView me = seat(av, actor);
+                    service.applyAction("t1", actor, "RAISE", me.committedThisStreet() + me.stack());
+                } else {
+                    service.applyAction("t1", actor, "CALL", 0);
+                }
+            }
+            TableStateView end = service.viewFor("t1", "alice");
+            busted = end.seats().stream()
+                    .filter(s -> s.stack() == 0)
+                    .map(SeatView::playerId)
+                    .findFirst().orElse(null);
+        }
+        assertNotNull(busted, "올인 승부에서 버스트가 나와야 한다(30판 내)");
+
+        assertFalse(service.seatedPlayerIds("t1").contains(busted), "버스트 좌석은 비워진다");
+        assertTrue(service.broadcastTargetIds("t1").contains(busted),
+                "버스트 플레이어도 종료 브로드캐스트는 받아야 한다(동결 방지)");
+        // 그 뷰에는 핸드 종료·팟 분배가 담겨 클라이언트가 결과 화면으로 전환할 수 있다
+        TableStateView finalView = service.viewFor("t1", busted);
+        assertFalse(finalView.handInProgress());
+        assertFalse(finalView.payouts().isEmpty());
+    }
+
     @Test
     void actingOutOfTurnIsRejected() {
         TableService service = twoPlayerTableMidHand();

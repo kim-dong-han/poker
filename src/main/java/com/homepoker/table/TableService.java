@@ -200,6 +200,22 @@ public class TableService {
         return getOrCreate(tableId).seatedPlayerIds();
     }
 
+    /**
+     * 브로드캐스트 수신 대상: 착석자 ∪ 현재 핸드 참가자.
+     * 올인에서 져서 버스트한 플레이어는 종료 처리(settleBusts)로 좌석이 즉시 비워지는데,
+     * 착석자에게만 전송하면 정작 패자는 마지막 종료 화면을 못 받아 클라이언트가
+     * "AI 생각 중" 프레임에 영구 동결된 것처럼 보인다(스크린샷 55·56의 실제 원인).
+     */
+    public List<String> broadcastTargetIds(String tableId) {
+        Table table = getOrCreate(tableId);
+        var targets = new java.util.LinkedHashSet<>(table.seatedPlayerIds());
+        HandEngine engine = table.engine();
+        if (engine != null) {
+            engine.players().forEach(p -> targets.add(p.id()));
+        }
+        return List.copyOf(targets);
+    }
+
     /** 착석하지 않은 관전자용 뷰: 어떤 좌석의 홀카드도 보이지 않는다(쇼다운 공개분 제외). */
     private static final String SPECTATOR = "__spectator__";
 
