@@ -63,6 +63,8 @@ export function usePokerTable() {
 
   const startHand = useCallback((id) => send(id, 'start', {}), [send]);
   const act = useCallback((id, type, amount = 0) => send(id, 'action', { type, amount }), [send]);
+  // 버스트 후 리바인 — 쿨다운 없이 즉시 재착석(서버 RuleGuard 가 한도 관리)
+  const rebuy = useCallback((id, name, buyIn) => send(id, 'rebuy', { name: name || id, buyIn }), [send]);
 
   // 언마운트 시 모든 연결 정리
   useEffect(() => () => {
@@ -70,5 +72,5 @@ export function usePokerTable() {
     clientsRef.current = {};
   }, []);
 
-  return { players, views, errors, connected, addPlayer, removePlayer, startHand, act };
+  return { players, views, errors, connected, addPlayer, removePlayer, startHand, act, rebuy };
 }

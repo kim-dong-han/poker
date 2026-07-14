@@ -80,6 +80,27 @@ public class RuleGuard {
         ledgers.computeIfAbsent(playerId, id -> new Ledger()).bustAt = clock.instant();
     }
 
+    /**
+     * 리바인(버스트 직후 같은 테이블에 즉시 다시 사기). 일반 재입장(join)과 달리
+     * 쿨다운을 면제하는 대신 횟수를 기록한다. 한도는 정책 maxRebuys 가 양수일 때만
+     * 강제된다(0 = 무제한 — 한도 기능은 준비돼 있으나 현재 미적용).
+     */
+    public void checkAndRecordRebuy(String playerId, long buyIn) {
+        checkAmountInRange(buyIn);
+        Ledger ledger = ledgers.computeIfAbsent(playerId, id -> new Ledger());
+        if (policy.maxRebuys() > 0 && ledger.rebuys >= policy.maxRebuys()) {
+            throw new RuleViolation("리바인 한도(" + policy.maxRebuys() + "회)를 모두 사용했습니다.");
+        }
+        ledger.rebuys++;
+        ledger.bustAt = null; // 리바인으로 복귀 — 남은 쿨다운도 해소
+    }
+
+    /** 지금까지 사용한 리바인 횟수. UI 표시용. */
+    public int rebuysUsed(String playerId) {
+        Ledger ledger = ledgers.get(playerId);
+        return ledger == null ? 0 : ledger.rebuys;
+    }
+
     /** 남은 재입장 쿨다운(초). 없으면 0. UI 표시용. */
     public long reentryCooldownRemainingSeconds(String playerId) {
         Ledger ledger = ledgers.get(playerId);
@@ -104,5 +125,6 @@ public class RuleGuard {
         private Instant bustAt;         // 마지막 버스트 시각
         private LocalDate reloadDay;    // reloadsToday 가 집계된 날짜
         private int reloadsToday;
+        private int rebuys;             // 누적 리바인 횟수(maxRebuys 한도용)
     }
 }

@@ -14,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TableServiceTest {
@@ -172,6 +173,22 @@ class TableServiceTest {
         TableStateView finalView = service.viewFor("t1", busted);
         assertFalse(finalView.handInProgress());
         assertFalse(finalView.payouts().isEmpty());
+    }
+
+    // 리바인: 버스트 직후 쿨다운 없이 즉시 재착석, 착석 중엔 거부.
+    @Test
+    void rebuyReseatsBustedPlayerImmediately() {
+        TableService service = newService();
+        service.join("t1", "alice", "Alice", 1000);
+        assertThrows(com.homepoker.rule.RuleViolation.class,
+                () -> service.rebuy("t1", "alice", "Alice", 1000)); // 착석 중 리바인 금지
+
+        // 버스트 상황을 직접 구성: 좌석 제거 + 버스트 기록과 동등한 상태
+        service.getOrCreate("t1").removeSeat("alice");
+        service.rebuy("t1", "alice", "Alice", 800);
+        assertTrue(service.seatedPlayerIds("t1").contains("alice"));
+        TableStateView v = service.viewFor("t1", "alice");
+        assertEquals(800, seat(v, "alice").stack());
     }
 
     @Test

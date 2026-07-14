@@ -123,6 +123,12 @@ const SFX = {
   deal: () => playTone(300, 0.05, 'triangle', 0.045),
   chip: () => { playTone(1600, 0.035, 'square', 0.02); playTone(2100, 0.03, 'square', 0.015, 0.045); },
   win: () => [523, 659, 784, 1047].forEach((f, i) => playTone(f, 0.15, 'sine', 0.05, i * 0.09)),
+  // 올인 런아웃 전용: 심장 쿵쿵(턴) / 상승 리저 + 쿵(리버 직전 최대 서스펜스)
+  thump: () => { playTone(76, 0.22, 'sine', 0.15); playTone(54, 0.3, 'sine', 0.12, 0.15); },
+  riser: () => {
+    [196, 233, 294, 370, 466].forEach((f, i) => playTone(f, 0.07, 'triangle', 0.035, i * 0.06));
+    playTone(76, 0.24, 'sine', 0.16, 0.34); playTone(54, 0.32, 'sine', 0.13, 0.5);
+  },
 };
 
 /* ------------------------------------------------------------------ 저장된 플레이어(localStorage) */
@@ -135,7 +141,7 @@ function persistSaved(list) {
 }
 
 /* ------------------------------------------------------------------ 카드 */
-function Card({ code, faceDown, delay = 0, flip }) {
+function Card({ code, faceDown, delay = 0, flip, dramatic }) {
   if (faceDown || !code) {
     return <span className="card back" style={{ animationDelay: `${delay}ms` }} />;
   }
@@ -144,7 +150,7 @@ function Card({ code, faceDown, delay = 0, flip }) {
   const red = suit === 'h' || suit === 'd';
   const sym = SUIT[suit] || suit;
   return (
-    <span className={`card ${red ? 'red' : 'black'} ${flip ? 'flip' : ''}`}
+    <span className={`card ${red ? 'red' : 'black'} ${dramatic ? 'dramatic' : flip ? 'flip' : ''}`}
       data-suit={sym} style={{ animationDelay: `${delay}ms` }}>
       <b>{rank}</b>
       <span className="pip">{sym}</span>
@@ -788,7 +794,7 @@ function HomePage({ onAdd, seatedIds, saved, onForget, onEnter, playerCount }) {
  * (자동진행이 연출을 자르지 않도록 서버 쪽 쇼다운 추가 대기와 짝을 이룬다.)
  */
 function useAllInRunout(live) {
-  const [staged, setStaged] = useState(null);
+  const [staged, setStaged] = useState(null); // { frame, phase: 'hole'|'flop'|'turn'|'river' }
   const prevRef = useRef(null);
   const timersRef = useRef([]);
 
@@ -814,33 +820,36 @@ function useAllInRunout(live) {
     if (!revealed || to < 5 || to - from < 1) return;
 
     const oldStacks = Object.fromEntries(prev.seats.map((s) => [s.playerId, s.stack]));
-    const frameAt = (boardLen) => ({
-      ...live,
-      handInProgress: true, // 승자·팟 분배·"새 핸드" UI 를 결과 프레임까지 보류
-      payouts: {},
-      board: live.board.slice(0, boardLen),
-      street: boardLen === 0 ? 'PREFLOP' : boardLen === 3 ? 'FLOP' : boardLen === 4 ? 'TURN' : 'RIVER',
-      seats: live.seats.map((s) => ({ ...s, stack: oldStacks[s.playerId] ?? s.stack, lastAction: null })),
-      currentActorId: null,
-      turnSecondsLeft: 0,
+    const frameAt = (boardLen, phase) => ({
+      phase,
+      frame: {
+        ...live,
+        handInProgress: true, // 승자·팟 분배·"새 핸드" UI 를 결과 프레임까지 보류
+        payouts: {},
+        board: live.board.slice(0, boardLen),
+        street: boardLen === 0 ? 'PREFLOP' : boardLen === 3 ? 'FLOP' : boardLen === 4 ? 'TURN' : 'RIVER',
+        seats: live.seats.map((s) => ({ ...s, stack: oldStacks[s.playerId] ?? s.stack, lastAction: null })),
+        currentActorId: null,
+        turnSecondsLeft: 0,
+      },
     });
-    const schedule = [[0, frameAt(from)]]; // 즉시: 홀카드 공개(올인 쇼다운), 보드는 아직 그대로
-    let t = 1000;
-    if (from < 3) { schedule.push([t, frameAt(3)]); t += 1300; } // 플랍
-    if (from < 4) { schedule.push([t, frameAt(4)]); t += 1400; } // 턴(뜸 들이기)
-    schedule.push([t, frameAt(5)]); t += 1100;                   // 리버
-    schedule.push([t, null]);                                    // 결과 공개(승자·효과음)
+    const schedule = [[0, frameAt(from, 'hole')]]; // 즉시: 홀카드 공개(올인 쇼다운), 보드는 아직 그대로
+    let t = 1200;
+    if (from < 3) { schedule.push([t, frameAt(3, 'flop')]); t += 1600; } // 플랍
+    if (from < 4) { schedule.push([t, frameAt(4, 'turn')]); t += 1900; } // 턴(뜸 들이기)
+    schedule.push([t, frameAt(5, 'river')]); t += 1500;                  // 리버(최대 서스펜스)
+    schedule.push([t, null]);                                            // 결과 공개(승자·효과음)
     timersRef.current.forEach(clearTimeout);
     timersRef.current = schedule.map(([ms, frame]) => setTimeout(() => setStaged(frame), ms));
   }, [live]);
 
   useEffect(() => () => timersRef.current.forEach(clearTimeout), []);
-  return staged || live;
+  return { state: staged ? staged.frame : live, runout: staged ? { phase: staged.phase } : null };
 }
 
 /* ------------------------------------------------------------------ 앱 */
 export default function App() {
-  const { players, views, errors, connected, addPlayer, removePlayer, startHand, act } = usePokerTable();
+  const { players, views, errors, connected, addPlayer, removePlayer, startHand, act, rebuy } = usePokerTable();
   const [picked, setPicked] = useState(null);
   const [saved, setSaved] = useState(loadSaved);
   const [screen, setScreen] = useState('home'); // 'home' | 'table'
@@ -873,7 +882,7 @@ export default function App() {
   const seatedIds = players.map((p) => p.id);
   const activeId = picked && seatedIds.includes(picked) ? picked : players[0]?.id;
   const liveState = activeId ? views[activeId] : null;
-  const state = useAllInRunout(liveState); // 올인 런아웃은 카드를 한 장씩 시차 공개
+  const { state, runout } = useAllInRunout(liveState); // 올인 런아웃은 카드를 한 장씩 시차 공개
   const error = activeId ? errors[activeId] : null;
   const actorId = state?.handInProgress ? state.currentActorId : null;
   const done = state && !state.handInProgress;
@@ -920,6 +929,34 @@ export default function App() {
     }
     sfxPrev.current = { actor: actorId, boardLen, done: !!done };
   }, [actorId, boardLen, done]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 올인 런아웃 연출: 스트리트 공개 순간 테이블 퀘이크(흔들림) + 전용 효과음.
+  const [quake, setQuake] = useState(false);
+  const runoutPhase = runout?.phase || null;
+  useEffect(() => {
+    if (!runoutPhase || runoutPhase === 'hole') return undefined;
+    setQuake(true);
+    if (sound) {
+      if (runoutPhase === 'river') SFX.riser();
+      else SFX.thump();
+    }
+    const t = setTimeout(() => setQuake(false), 650);
+    return () => clearTimeout(t);
+  }, [runoutPhase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 리바인: 버스트(핸드 종료 + 내 스택 0)면 즉시 다시 살 수 있다(쿨다운 면제, 서버가 한도 관리).
+  const [rebuyAmt, setRebuyAmt] = useState('');
+  const [rebuyPending, setRebuyPending] = useState(false);
+  const busted = !!state && !state.handInProgress && !!mySeat && mySeat.stack === 0;
+  useEffect(() => {
+    if (inProgress || (mySeat && mySeat.stack > 0)) setRebuyPending(false);
+  }, [inProgress, mySeat?.stack]); // eslint-disable-line react-hooks/exhaustive-deps
+  const doRebuy = () => {
+    const amt = Number(rebuyAmt) || 1000;
+    const name = players.find((p) => p.id === activeId)?.name || activeId;
+    rebuy(activeId, name, amt);
+    setRebuyPending(true);
+  };
 
   const addBot = () => fetch('/api/tables/t1/bots', { method: 'POST' }).catch(() => {});
   const removeBot = () => fetch('/api/tables/t1/bots', { method: 'DELETE' }).catch(() => {});
@@ -1043,10 +1080,14 @@ export default function App() {
 
       {state && (
         <main>
-          <div className="table-wrap">
+          <div className={`table-wrap ${quake ? 'quake' : ''}`}>
             <div className="poker-table">
               <div className="rail" />
               <div className="felt">
+                {runout && <div className="runout-vignette" />}
+                {runout && runout.phase !== 'hole' && (
+                  <div key={runout.phase} className="reveal-flash" />
+                )}
                 <div className="felt-brand">
                   <span className="fb-suit">♠</span>
                   <span className="fb-word">HOME POKER</span>
@@ -1058,7 +1099,15 @@ export default function App() {
                   <div className="board">
                     {state.board.length === 0
                       ? <span className="board-empty">— 보드 —</span>
-                      : state.board.map((c, i) => <Card key={c} code={c} flip delay={i * 120} />)}
+                      : state.board.map((c, i) => {
+                          // 런아웃 중 방금 공개된 카드(들)는 대형 3D 플립 + 골드 글로우
+                          const justRevealed = runout && runout.phase !== 'hole'
+                            && (runout.phase === 'flop' ? i >= state.board.length - 3 : i === state.board.length - 1);
+                          const delay = justRevealed
+                            ? (runout.phase === 'flop' ? (i - (state.board.length - 3)) * 160 : 0)
+                            : i * 120;
+                          return <Card key={c} code={c} flip delay={delay} dramatic={justRevealed} />;
+                        })}
                   </div>
                   <div className="pot">
                     <ChipStack amount={state.pot} cap={4} />
@@ -1102,7 +1151,18 @@ export default function App() {
                           <button className="ghost sm" onClick={() => setPicked(actorId)}>{actorId}(으)로 전환 →</button>
                         </>}
                   </div>
-                : <div className="turn-hint runout">🃏 올인 쇼다운 — 남은 카드를 공개합니다…</div>
+                : (
+                  <div className="turn-hint runout">
+                    <span className="runout-title">🃏 올인 쇼다운</span>
+                    <span className="runout-steps">
+                      {[['flop', '플랍', 3], ['turn', '턴', 4], ['river', '리버', 5]].map(([key, label, len]) => {
+                        const bl = state.board.length;
+                        const cls = bl >= len ? (runout?.phase === key ? 'now' : 'done') : 'wait';
+                        return <span key={key} className={`rstep ${cls}`}>{label}</span>;
+                      })}
+                    </span>
+                  </div>
+                )
           )}
 
           {done && Object.keys(payouts).length > 0 && (
@@ -1110,6 +1170,22 @@ export default function App() {
               🏆 {Object.entries(payouts).filter(([, a]) => a > 0)
                 .map(([id, amt]) => <span key={id} className="win-name">{id} +{amt} </span>)}
             </div>
+          )}
+
+          {busted && (
+            rebuyPending
+              ? <div className="rebuy-box pending">⏳ 리바인 완료 — 다음 핸드부터 참여합니다</div>
+              : (
+                <div className="rebuy-box">
+                  <span className="rebuy-title">💸 칩을 모두 잃었습니다</span>
+                  <input type="number" inputMode="numeric" value={rebuyAmt} placeholder="1000 (400~2000)"
+                    onChange={(e) => setRebuyAmt(e.target.value)} />
+                  <button className="rebuy-btn" onClick={doRebuy}>
+                    리바인 {(Number(rebuyAmt) || 1000).toLocaleString()}
+                  </button>
+                  <span className="muted sm-note">쿨다운 없이 즉시 재참여</span>
+                </div>
+              )
           )}
 
           <Leaderboard />

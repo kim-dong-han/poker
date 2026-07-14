@@ -36,6 +36,13 @@ public class TableController {
         broadcast(id);
     }
 
+    /** 버스트 후 리바인 — 쿨다운 없이 즉시 재착석(횟수 한도는 RuleGuard 정책). */
+    @MessageMapping("/table/{id}/rebuy")
+    public void rebuy(@DestinationVariable String id, JoinRequest req, Principal principal) {
+        tableService.rebuy(id, principal.getName(), req.name(), req.buyIn());
+        broadcast(id);
+    }
+
     @MessageMapping("/table/{id}/start")
     public void start(@DestinationVariable String id) {
         tableService.startHand(id);

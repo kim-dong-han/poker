@@ -103,6 +103,46 @@ class RuleGuardTest {
         assertDoesNotThrow(() -> guard.checkAndRecordReload("p", 200, 100));
     }
 
+    // ---- 리바인(버스트 직후 즉시 재착석) ----
+    @Test
+    void rebuyWaivesCooldownImmediatelyAfterBust() {
+        MutableClock clock = clock();
+        RuleGuard guard = new RuleGuard(POLICY, clock);
+        guard.recordBust("p");
+
+        // 일반 재입장은 쿨다운에 막히지만 리바인은 즉시 가능
+        assertThrows(RuleViolation.class, () -> guard.checkJoin("p", 500));
+        assertDoesNotThrow(() -> guard.checkAndRecordRebuy("p", 500));
+        assertEquals(1, guard.rebuysUsed("p"));
+        // 리바인으로 복귀했으므로 남은 쿨다운도 해소
+        assertEquals(0, guard.reentryCooldownRemainingSeconds("p"));
+    }
+
+    @Test
+    void rebuyUnlimitedWhenLimitNotApplied() {
+        RuleGuard guard = new RuleGuard(POLICY, clock()); // maxRebuys=0(미적용)
+        for (int i = 0; i < 10; i++) {
+            assertDoesNotThrow(() -> guard.checkAndRecordRebuy("p", 500));
+        }
+        assertEquals(10, guard.rebuysUsed("p"));
+    }
+
+    @Test
+    void rebuyLimitEnforcedWhenConfigured() {
+        BuyInPolicy limited = new BuyInPolicy(100, 1000, Duration.ofMinutes(10), 2, 2);
+        RuleGuard guard = new RuleGuard(limited, clock());
+        guard.checkAndRecordRebuy("p", 500); // 1회
+        guard.checkAndRecordRebuy("p", 500); // 2회 (한도=2)
+        assertThrows(RuleViolation.class, () -> guard.checkAndRecordRebuy("p", 500));
+    }
+
+    @Test
+    void rebuyStillEnforcesBuyInRange() {
+        RuleGuard guard = new RuleGuard(POLICY, clock());
+        assertThrows(RuleViolation.class, () -> guard.checkAndRecordRebuy("p", 99));
+        assertThrows(RuleViolation.class, () -> guard.checkAndRecordRebuy("p", 1001));
+    }
+
     @Test
     void rejectsReloadThatExceedsMaxBuyIn() {
         RuleGuard guard = new RuleGuard(POLICY, clock());

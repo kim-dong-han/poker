@@ -9,6 +9,7 @@ import com.homepoker.engine.game.Street;
 import com.homepoker.equity.Equity;
 import com.homepoker.equity.EquityService;
 import com.homepoker.rule.RuleGuard;
+import com.homepoker.rule.RuleViolation;
 import com.homepoker.stats.HandReport;
 import com.homepoker.stats.StatsService;
 import com.homepoker.web.dto.LobbyRow;
@@ -77,6 +78,19 @@ public class TableService {
     public void join(String tableId, String playerId, String name, long buyIn) {
         ruleGuard.checkJoin(playerId, buyIn);
         getOrCreate(tableId).seat(playerId, name, buyIn);
+    }
+
+    /**
+     * 리바인: 버스트로 자리를 잃은 플레이어가 쿨다운 없이 즉시 다시 산다.
+     * 착석 중이면 거부(칩 추가는 리로드 경로). 횟수 한도는 RuleGuard(maxRebuys)가 관리.
+     */
+    public void rebuy(String tableId, String playerId, String name, long buyIn) {
+        Table table = getOrCreate(tableId);
+        if (table.isSeated(playerId)) {
+            throw new RuleViolation("이미 착석 중입니다 — 리바인은 버스트 후에만 가능합니다.");
+        }
+        ruleGuard.checkAndRecordRebuy(playerId, buyIn);
+        table.seat(playerId, name, buyIn);
     }
 
     public void startHand(String tableId) {
