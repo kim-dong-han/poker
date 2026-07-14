@@ -180,6 +180,19 @@ class PreflopAdvisorTest {
         assertEquals(1000, d.get().amount(), "5벳은 100bb 스택에서 올인");
     }
 
+    // 올인 대치는 차트를 우회한다(표준 사이즈 가정이 깨짐 + 3벳/폴드 차트의 AA 폴드 버그 방지)
+    @Test
+    void facingAllInBypassesChartsToEquityFallback() {
+        Player me = new Player("me", "Me", 1000);
+        Player bot = new Player("bot", "Bot", 1000);
+        Deck deck = Deck.ofOrder(cards("7c", "As", "2d", "Ah", "Ks", "Qs", "Js", "5d", "9c"));
+        HandEngine e = new HandEngine(List.of(me, bot), 0, 10, 20, deck);
+        e.start();
+        e.apply(Action.raiseTo("me", 1000)); // 오픈 올인
+        assertTrue(advisor.advise(e, "bot", new Random(1)).isEmpty(),
+                "올인 대치는 차트 밖 → 이퀴티 폴백이어야 한다");
+    }
+
     @Test
     void emptyChartsAlwaysFallBack() {
         HandEngine e = headsUp("As", "7c", "Ah", "2d");

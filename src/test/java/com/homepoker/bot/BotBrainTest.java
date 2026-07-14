@@ -6,6 +6,7 @@ import com.homepoker.engine.game.Action;
 import com.homepoker.engine.game.HandEngine;
 import com.homepoker.engine.game.Player;
 import com.homepoker.equity.EquityService;
+import com.homepoker.range.BtsPreflopCharts;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -27,6 +28,67 @@ class BotBrainTest {
     }
 
     private final BotBrain brain = new BotBrain(new EquityService());
+
+    /** 차트+해링턴 규칙까지 전부 켠 운영 구성의 두뇌(올인 우회 회귀 테스트용). */
+    private static BotBrain fullBrain() {
+        return new BotBrain(new EquityService(),
+                new PreflopAdvisor(new BtsPreflopCharts("preflop/bts-preflop-test.json"), 0.35, 0.5),
+                new PostflopAdvisor(0.7, 0.4, 0.8));
+    }
+
+    // 아무 패 프리플랍 올인 응징: 차트(3벳/폴드)는 상대 올인 시 레이즈 불가라 AA 조차
+    // 폴드하던 버그 → 올인 대치는 차트를 우회해 이퀴티로 콜/레이즈해야 한다.
+    @Test
+    void punishesAnyTwoPreflopShoveWithStrongHand() {
+        Player human = new Player("me", "Me", 1000);
+        Player bot = new Player("ai-1", "AI 1", 1000);
+        // me(버튼/SB) 7h2c 오픈 올인, bot(BB) AhAd
+        Deck deck = Deck.ofOrder(cards("7h", "Ah", "2c", "Ad", "Ks", "Qs", "Js", "5d", "9c"));
+        HandEngine e = new HandEngine(List.of(human, bot), 0, 10, 20, deck);
+        e.start();
+        e.apply(Action.raiseTo("me", 1000));
+
+        BotBrain.Decision d = fullBrain().decide(e, "ai-1", 3000, new Random(42));
+        assertNotEquals("FOLD", d.type(), "AA 는 아무 패 올인을 응징해야 한다: " + d.reason());
+    }
+
+    // 반대 방향의 안전장치: 올인이라고 무조건 콜하는 게 아니라, 쓰레기 핸드는 여전히 폴드.
+    @Test
+    void stillFoldsJunkFacingPreflopShove() {
+        Player human = new Player("me", "Me", 1000);
+        Player bot = new Player("ai-1", "AI 1", 1000);
+        // me(버튼/SB) AhAd 오픈 올인, bot(BB) 7h2c
+        Deck deck = Deck.ofOrder(cards("Ah", "7h", "Ad", "2c", "Ks", "Qs", "Js", "5d", "9c"));
+        HandEngine e = new HandEngine(List.of(human, bot), 0, 10, 20, deck);
+        e.start();
+        e.apply(Action.raiseTo("me", 1000));
+
+        BotBrain.Decision d = fullBrain().decide(e, "ai-1", 3000, new Random(42));
+        assertEquals("FOLD", d.type(), "72o 는 올인에도 폴드: " + d.reason());
+    }
+
+    // 리버 올인 응징: 해링턴 "리버 큰 벳 = 원페어 폴드" 규칙이 올인에 100% 적용되면
+    // 아무 패 올인에 착취당한다 → 올인 대치는 규칙을 우회해 이퀴티로 콜해야 한다.
+    @Test
+    void callsRiverShoveWithTopPairInsteadOfRuleFold() {
+        Player human = new Player("me", "Me", 1000);
+        Player bot = new Player("ai-1", "AI 1", 1000);
+        // me(버튼/SB) 7h2c, bot(BB) KhQc — 보드 Ks 9d 4h 5d 9s(봇 = 톱페어+보드페어)
+        Deck deck = Deck.ofOrder(cards("7h", "Kh", "2c", "Qc", "Ks", "9d", "4h", "5d", "9s"));
+        HandEngine e = new HandEngine(List.of(human, bot), 0, 10, 20, deck);
+        e.start();
+        e.apply(Action.call("me"));
+        e.apply(Action.check("ai-1"));
+        e.apply(Action.check("ai-1")); // 플랍(포스트플랍 첫 액션 = BB)
+        e.apply(Action.check("me"));
+        e.apply(Action.check("ai-1")); // 턴
+        e.apply(Action.check("me"));
+        e.apply(Action.check("ai-1")); // 리버
+        e.apply(Action.bet("me", 980)); // 사람 올인
+
+        BotBrain.Decision d = fullBrain().decide(e, "ai-1", 3000, new Random(42));
+        assertEquals("CALL", d.type(), "톱페어는 리버 올인을 이퀴티로 콜해야 한다: " + d.reason());
+    }
 
     // 7하이로 플랍 올인을 맞으면(필요이퀴티 ≈ 49%, 실제 ≈ 10%대) 폴드해야 한다.
     @Test

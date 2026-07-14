@@ -145,6 +145,11 @@ public class PostflopAdvisor {
         long toCall = Math.min(engine.amountToCall(botId), me.stack());
         Set<ActionType> legal = engine.legalActions(botId);
 
+        if (toCall > 0 && BotBrain.facingEffectiveAllIn(engine, me)) {
+            // 올인 대치: "큰 벳엔 원페어 폴드" 류 규칙을 100% 적용하면 아무 패 올인에
+            // 그대로 착취당한다 → 이퀴티 vs 팟오즈 폴백(무지성 올인일수록 랜덤 가정이 정확)
+            return Optional.empty();
+        }
         return toCall == 0
                 ? adviseNoBet(engine, me, rd, tx, hist, multiway, opp, pot, legal, rng)
                 : adviseFacingBet(engine, me, rd, hist, multiway, opp, pot, toCall, legal);

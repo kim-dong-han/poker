@@ -475,7 +475,7 @@ function mistakeExplain(d) {
       + `놓쳤습니다. 이런 지점은 콜이 이득이에요.`;
 }
 
-function ReplayPanel({ onClose }) {
+function ReplayPanel({ onClose, viewerId }) {
   const [hands, setHands] = useState([]);
   const [sel, setSel] = useState(null);
   const [frames, setFrames] = useState([]);
@@ -497,10 +497,15 @@ function ReplayPanel({ onClose }) {
   };
 
   const frame = frames[step];
+  // 복기는 "나"의 코칭 — 실수 배너·마커는 내(viewerId) 콜/폴드만 보여준다.
+  // (AI 는 자기 규칙대로 플레이하므로 AI 판정까지 띄우면 "AI가 스스로 실수 분석"처럼 보인다.)
+  const myMistakes = (review?.decisions || []).filter(
+    (d) => d.mistake && (!viewerId || d.playerId === viewerId),
+  );
   // 액션 인덱스 d.step 의 결과가 반영된 프레임은 step+1 → 그 프레임에 실수 마커를 찍는다.
   const mistakeAt = {};
-  (review?.decisions || []).forEach((d) => { if (d.mistake) mistakeAt[d.step + 1] = d; });
-  const worst = review?.worstMistake;
+  myMistakes.forEach((d) => { mistakeAt[d.step + 1] = d; });
+  const worst = myMistakes.reduce((a, b) => (!a || b.evLossBb > a.evLossBb ? b : a), null);
   const curMistake = mistakeAt[step];
 
   return (
@@ -508,7 +513,7 @@ function ReplayPanel({ onClose }) {
       <div className="replay-head">
         <b>핸드 복기</b>
         <span className="muted">
-          <JargonText text="이퀴티 vs 팟오즈로 EV 손실 실수 자동 감지" /> · 점선 용어를 누르면 설명
+          <JargonText text="내 콜/폴드를 이퀴티 vs 팟오즈로 판정해 EV 손실 실수 감지" /> · 점선 용어를 누르면 설명
         </span>
         <button className="ghost sm" onClick={onClose}>닫기 ×</button>
       </div>
@@ -538,7 +543,7 @@ function ReplayPanel({ onClose }) {
               <div className="mistake-explain"><JargonText text={mistakeExplain(worst)} /></div>
             </>
           )}
-          {review && !worst && <div className="mistake-banner clean">✔ 이 핸드에서 감지된 실수 없음</div>}
+          {review && !worst && <div className="mistake-banner clean">✔ 이 핸드에서 감지된 내 실수 없음</div>}
 
           <div className="replay-stage">
             <div className="replay-street">{translateStreet(frame.street)} · 팟 <b>{frame.pot}</b></div>
@@ -932,7 +937,7 @@ export default function App() {
         </span>
       </header>
 
-      {showReplay && <ReplayPanel onClose={() => setShowReplay(false)} />}
+      {showReplay && <ReplayPanel viewerId={activeId} onClose={() => setShowReplay(false)} />}
 
       <div className="players-panel">
         <div className="players-head">

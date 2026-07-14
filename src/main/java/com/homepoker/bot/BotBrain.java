@@ -154,4 +154,24 @@ public class BotBrain {
         long allInTo = engine.committedThisStreet(me.id()) + me.stack();
         return Math.min(allInTo, Math.max(engine.minRaiseTo(), desiredTo));
     }
+
+    /**
+     * 실질적 올인 대치 여부: 콜하면 내가 올인이거나, 현재 벳을 만든 상대가 올인 상태.
+     * 차트(표준 사이즈 가정)·해링턴 규칙("큰 벳엔 원페어 폴드")은 올인엔 맞지 않는다 —
+     * 규칙대로 100% 폴드하면 아무 패 올인 스팸에 그대로 착취당하므로, 이 상황은
+     * 어드바이저를 우회해 이퀴티 vs 팟오즈(상대 랜덤 가정)로 콜/폴드를 정한다.
+     * 랜덤 가정은 무지성 올인일수록 정확해져 자동으로 응징이 된다.
+     */
+    static boolean facingEffectiveAllIn(HandEngine engine, Player me) {
+        long toCall = engine.amountToCall(me.id());
+        if (toCall <= 0) {
+            return false;
+        }
+        if (toCall >= me.stack()) {
+            return true; // 콜 자체가 내 올인
+        }
+        return engine.players().stream().anyMatch(p -> !p.id().equals(me.id())
+                && p.status() == PlayerStatus.ALL_IN
+                && engine.committedThisStreet(p.id()) >= engine.currentBet());
+    }
 }

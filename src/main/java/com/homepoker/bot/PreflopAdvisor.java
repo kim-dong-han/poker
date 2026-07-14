@@ -73,6 +73,11 @@ public class PreflopAdvisor {
         if (me.holeCards().size() != 2) {
             return Optional.empty();
         }
+        if (BotBrain.facingEffectiveAllIn(engine, me)) {
+            // 올인 대치: 차트는 표준 사이즈(오픈 2~3bb·3벳 9~11bb) 가정이라 맞지 않고,
+            // 특히 3벳/폴드 차트는 레이즈 불가(상대 올인) 시 AA 조차 폴드해 버린다 → 이퀴티 폴백
+            return Optional.empty();
+        }
         String hand = HandNotation.of(me.holeCards());
         long bb = engine.log().bigBlind();
 
