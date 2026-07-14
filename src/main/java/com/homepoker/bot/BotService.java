@@ -1,6 +1,7 @@
 package com.homepoker.bot;
 
 import com.homepoker.engine.game.ActionType;
+import com.homepoker.engine.game.HandLog;
 import com.homepoker.engine.game.Player;
 import com.homepoker.table.Table;
 import com.homepoker.table.TableService;
@@ -16,6 +17,13 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 테이블별 AI 좌석 관리 + 봇 차례가 오면 대신 액션을 넣는다.
@@ -24,7 +32,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * TableService 로 직접 들어간다(타임아웃 자동 액션과 같은 경로). 홀카드 역시 서버 메모리에만
  * 있으므로 사람 클라이언트로는 절대 나가지 않는다(리댁션 규칙 그대로).
  *
- * 동시성: 액션 적용은 Table 모니터로 감싸 사람 액션·타임아웃 스위퍼와의 경합에서 원자성을 보장.
+ * 동시성: 액션 "적용"만 Table 모니터로 감싸고, 몬테카를로 등 무거운 "판단"은
+ * 락 밖의 전용 스레드에서 제한시간(poker.bot.decide-timeout-ms) 안에 돌린다.
+ * 그래서 판단이 예외를 던지든, 무한 대기에 빠지든 테이블 락은 절대 잡혀 있지 않아
+ * 타임아웃 자동폴드(TableService.enforceTimeout)가 항상 게임을 전진시킬 수 있다 —
+ * "AI 생각 중" 상태로 테이블이 영구 동결되는 것을 구조적으로 차단한다.
  */
 @Service
 public class BotService {
@@ -55,11 +67,27 @@ public class BotService {
     /** 테이블별 봇 액션 기록(시간순, 오래된 것부터). 접근은 Table 모니터 안에서만. */
     private final Map<String, Deque<BotAction>> reasonLog = new ConcurrentHashMap<>();
 
+    /** 판단 제한시간 초과·거부 시 대비 스레드 상한 — 둘 다 물려도 게임은 안전 액션으로 계속 간다. */
+    private final ExecutorService decidePool = Executors.newFixedThreadPool(2, r -> {
+        Thread t = new Thread(r, "bot-decide");
+        t.setDaemon(true);
+        return t;
+    });
+    private final long decideTimeoutMillis;
+
+    @org.springframework.beans.factory.annotation.Autowired
     public BotService(TableService tableService, BotBrain brain,
-                      @Value("${poker.bot.think-ms:900}") long thinkMillis) {
+                      @Value("${poker.bot.think-ms:900}") long thinkMillis,
+                      @Value("${poker.bot.decide-timeout-ms:5000}") long decideTimeoutMillis) {
         this.tableService = tableService;
         this.brain = brain;
         this.thinkMillis = thinkMillis;
+        this.decideTimeoutMillis = decideTimeoutMillis;
+    }
+
+    /** 판단 제한시간 기본값(5초)을 쓰는 편의 생성자(기존 테스트 호환). */
+    public BotService(TableService tableService, BotBrain brain, long thinkMillis) {
+        this(tableService, brain, thinkMillis, 5000);
     }
 
     /** AI 한 명 착석(ai-1, ai-2 …). RuleGuard 바이인 검증은 사람과 동일하게 통과해야 한다. */
@@ -104,6 +132,10 @@ public class BotService {
      */
     public boolean actIfBotTurn(String tableId) {
         Table table = tableService.getOrCreate(tableId);
+        String botId;
+        String street;
+        int handNo;
+        HandLog snapshot;
         synchronized (table) {
             if (!table.handInProgress()) {
                 actAt.remove(tableId);
@@ -128,33 +160,77 @@ public class BotService {
                 return false;
             }
             actAt.remove(tableId);
-            String street = table.engine().street().name();
-            int handNo = table.handsPlayed();
-            // 두뇌가 어떤 이유로든 실패해도 테이블이 멈추면 안 된다("생각 중" 무한 루프 방지) —
-            // 안전 액션(체크 가능하면 체크, 아니면 폴드)으로 강제 진행하고 원인은 로그로 남긴다.
-            BotBrain.Decision d;
-            try {
-                d = brain.decide(table.engine(), actor.id());
-            } catch (RuntimeException ex) {
-                d = safeDecision(table, actor.id());
-                log.error("봇 판단 실패 — 안전 액션으로 대체(table={}, bot={}, street={})",
-                        tableId, actor.id(), street, ex);
+            botId = actor.id();
+            street = table.engine().street().name();
+            handNo = table.handsPlayed();
+            snapshot = table.engine().log(); // 판단은 락 밖에서 이 스냅샷의 복제 엔진으로
+        }
+
+        // ---- 테이블 락 밖: 몬테카를로 등 무거운 판단(제한시간 내). 여기서 무엇이 잘못돼도
+        //      (예외·무한 대기) 락을 쥐고 있지 않으므로 타임아웃 자동폴드는 절대 막히지 않는다.
+        BotBrain.Decision d = decideOffLock(snapshot, botId, tableId, street);
+
+        synchronized (table) {
+            // 판단하는 사이 상태가 바뀌었으면(타임아웃 자동 액션·핸드 종료 등) 조용히 물러난다 —
+            // 액션 수까지 비교해 "다른 스트리트의 낡은 판단"이 적용되는 일을 막는다
+            if (!table.handInProgress()
+                    || table.engine().log().actionCount() != snapshot.actionCount()) {
+                return false;
+            }
+            Player actor = table.engine().playerToAct();
+            if (actor == null || !actor.id().equals(botId)) {
+                return false;
+            }
+            if (d == null) {
+                d = safeDecision(table, botId);
             }
             try {
-                tableService.applyAction(tableId, actor.id(), d.type(), d.amount());
+                tableService.applyAction(tableId, botId, d.type(), d.amount());
             } catch (RuntimeException ex) {
                 log.error("봇 액션 거부({} {}) — 안전 액션으로 대체(table={}, bot={}, street={})",
-                        d.type(), d.amount(), tableId, actor.id(), street, ex);
-                d = safeDecision(table, actor.id());
-                tableService.applyAction(tableId, actor.id(), d.type(), d.amount());
+                        d.type(), d.amount(), tableId, botId, street, ex);
+                d = safeDecision(table, botId);
+                tableService.applyAction(tableId, botId, d.type(), d.amount());
             }
             Deque<BotAction> actions = reasonLog.computeIfAbsent(tableId, k -> new ArrayDeque<>());
-            actions.addLast(new BotAction(actor.id(), actor.name(), handNo, street,
+            actions.addLast(new BotAction(botId, actor.name(), handNo, street,
                     d.type(), d.amount(), d.reason()));
             while (actions.size() > REASON_LOG_LIMIT) {
                 actions.removeFirst();
             }
             return true;
+        }
+    }
+
+    /**
+     * 스냅샷을 복제 엔진으로 되살려 전용 스레드에서 판단한다(제한시간 poker.bot.decide-timeout-ms).
+     * 시간 초과·예외·풀 고갈 등 어떤 실패든 null 을 돌려주고(호출측이 안전 액션으로 대체),
+     * 원인은 에러 로그로 남긴다 — 판단 실패가 게임 진행을 막는 일은 없다.
+     */
+    private BotBrain.Decision decideOffLock(HandLog snapshot, String botId, String tableId, String street) {
+        Future<BotBrain.Decision> future;
+        try {
+            future = decidePool.submit(() -> brain.decide(snapshot.finalState(), botId));
+        } catch (RejectedExecutionException ex) {
+            log.error("봇 판단 스레드 고갈 — 안전 액션으로 대체(table={}, bot={}, street={})",
+                    tableId, botId, street);
+            return null;
+        }
+        try {
+            return future.get(decideTimeoutMillis, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException ex) {
+            future.cancel(true);
+            log.error("봇 판단 시간 초과({}ms) — 안전 액션으로 대체(table={}, bot={}, street={})",
+                    decideTimeoutMillis, tableId, botId, street);
+            return null;
+        } catch (ExecutionException ex) {
+            log.error("봇 판단 실패 — 안전 액션으로 대체(table={}, bot={}, street={})",
+                    tableId, botId, street, ex.getCause());
+            return null;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            future.cancel(true);
+            return null;
         }
     }
 

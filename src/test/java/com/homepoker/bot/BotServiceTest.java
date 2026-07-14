@@ -12,6 +12,10 @@ import com.homepoker.table.TurnTimer;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -165,6 +169,89 @@ class BotServiceTest {
         }
         long total = table.seatedPlayers().stream().mapToLong(Player::stack).sum();
         assertEquals(2000, total, "칩 보존");
+    }
+
+    // 두뇌가 응답하지 않아도(무한 대기) 판단 제한시간이 끊고 안전 액션으로 진행한다.
+    @Test
+    void safeActionWhenBrainHangs() {
+        TableService tableService = newTableService();
+        BotBrain hanging = new BotBrain(new EquityService()) {
+            @Override
+            public Decision decide(HandEngine engine, String botId) {
+                try {
+                    Thread.sleep(60_000);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt(); // 제한시간 초과 시 인터럽트로 회수된다
+                }
+                return new Decision("CHECK", 0, "너무 늦은 판단");
+            }
+        };
+        BotService botService = new BotService(tableService, hanging, 0, 200); // 판단 제한 0.2초
+        botService.addBot("t1");
+        botService.addBot("t1");
+        tableService.startHand("t1");
+
+        Table table = tableService.getOrCreate("t1");
+        int guard = 0;
+        while (table.handInProgress()) {
+            if (guard++ > 20) {
+                throw new AssertionError("두뇌가 멈춰도 안전 액션으로 핸드가 끝까지 진행돼야 한다");
+            }
+            botService.actIfBotTurn("t1");
+        }
+        long total = table.seatedPlayers().stream().mapToLong(Player::stack).sum();
+        assertEquals(2000, total, "칩 보존");
+    }
+
+    // 핵심 동결 회귀: 봇이 "생각 중"(판단이 안 끝남)이어도 타임아웃 자동 액션은
+    // 테이블 락에 막히지 않고 즉시 들어가야 한다(스크린샷 55·56 — 무한 "생각 중" 동결).
+    @Test
+    void timeoutAutoActionIsNotBlockedByThinkingBot() throws Exception {
+        TableService tableService = new TableService(
+                new RuleGuard(BuyInPolicy.defaults(), Clock.systemDefaultZone()),
+                new EquityService(),
+                new StatsService(),
+                new TurnTimer(Clock.systemDefaultZone(), Duration.ofMillis(150))); // 짧은 타임뱅크
+        CountDownLatch thinking = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        BotBrain stuck = new BotBrain(new EquityService()) {
+            @Override
+            public Decision decide(HandEngine engine, String botId) {
+                thinking.countDown();
+                try {
+                    release.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+                return new Decision("CHECK", 0, "늦은 판단");
+            }
+        };
+        // 판단 제한시간을 일부러 길게(30초) — "생각이 끝나지 않는" 상황을 재현
+        BotService botService = new BotService(tableService, stuck, 0, 30_000);
+        tableService.join("t1", "me", "Me", 1000);
+        botService.addBot("t1");
+        tableService.startHand("t1");
+        Table table = tableService.getOrCreate("t1");
+        tableService.applyAction("t1", "me", "CALL", 0); // 사람(SB) 콜 → 봇(BB) 차례
+
+        Thread sweeper = new Thread(() -> botService.actIfBotTurn("t1"));
+        sweeper.start();
+        try {
+            assertTrue(thinking.await(2, TimeUnit.SECONDS), "봇이 생각을 시작해야 한다");
+            Thread.sleep(250); // 타임뱅크(150ms) 만료 대기
+
+            // 판단이 테이블 락을 쥔 채라면 여기서 영원히 블록된다 — 2초 안에 끝나야 통과
+            Boolean acted = CompletableFuture
+                    .supplyAsync(() -> tableService.enforceTimeout("t1"))
+                    .get(2, TimeUnit.SECONDS);
+            assertTrue(acted, "봇이 생각 중이어도 타임아웃 자동 액션은 즉시 들어가야 한다");
+        } finally {
+            release.countDown();
+            sweeper.join(3000);
+        }
+        // 뒤늦게 끝난 낡은 판단(프리플랍용 체크)은 액션 수 불일치로 폐기돼야 한다
+        assertTrue(botService.reasons("t1", true).isEmpty(),
+                "타임아웃이 먼저 액션을 넣었으면 봇의 낡은 판단은 적용되지 않아야 한다");
     }
 
     // 핸드 진행 중엔 AI 제거 불가, 종료 후엔 가능.
