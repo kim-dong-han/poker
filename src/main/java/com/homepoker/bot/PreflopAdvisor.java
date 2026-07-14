@@ -27,17 +27,31 @@ import java.util.Set;
  *
  * 경계선(노랑) 핸드: 책에선 "타이트/위크 상대 한정" 조건부지만, 봇은 상대 모델이 없으므로
  * 고정 빈도(poker.bot.borderline-freq, 기본 0.35)로 섞는다 — 혼합 전략의 예측 불가성도 겸한다.
+ *
+ * 헤즈업 오픈 보정: 차트는 6-max 용이라 SB 오픈이 콤보 기준 약 49%에 그치는데, 헤즈업 버튼의
+ * 정석 오픈은 75~85%(블라인드가 절반씩 걸려 레인지가 크게 넓어짐). 그래서 2인 테이블의 첫 오픈은
+ * 경계선을 전량 오픈으로 승격하고, 차트 밖 핸드도 poker.bot.hu-open-boost(기본 0.5) 빈도로
+ * 섞어 연다 — 특정 핸드 "무조건 오픈"이 아니라 빈도 보정이므로 착취당하지 않는다.
  */
 @Service
 public class PreflopAdvisor {
 
     private final BtsPreflopCharts charts;
     private final double borderlineFreq;
+    private final double huOpenBoost;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public PreflopAdvisor(BtsPreflopCharts charts,
-                          @Value("${poker.bot.borderline-freq:0.35}") double borderlineFreq) {
+                          @Value("${poker.bot.borderline-freq:0.35}") double borderlineFreq,
+                          @Value("${poker.bot.hu-open-boost:0.5}") double huOpenBoost) {
         this.charts = charts;
         this.borderlineFreq = borderlineFreq;
+        this.huOpenBoost = huOpenBoost;
+    }
+
+    /** 헤즈업 보정 기본값(0.5)을 쓰는 편의 생성자(기존 테스트 호환). */
+    public PreflopAdvisor(BtsPreflopCharts charts, double borderlineFreq) {
+        this(charts, borderlineFreq, 0.5);
     }
 
     /** 차트 없이 동작(항상 empty) — 이퀴티 로직만 검증하는 테스트용. */
@@ -86,20 +100,33 @@ public class PreflopAdvisor {
             return Optional.empty(); // BB 무료 체크/림프 팟은 이퀴티 로직이 처리
         }
         Map<String, Double> a = charts.actions("openRaise", myPos, hand);
-        double p = a.getOrDefault("open", 0.0) + borderlineFreq * a.getOrDefault("openBorderline", 0.0);
+        boolean headsUp = engine.players().size() == 2;
+        double p;
+        if (headsUp) {
+            // 헤즈업 버튼: 경계선 전량 오픈 + 차트 밖 핸드도 hu-open-boost 빈도로 오픈(클래스 주석 참조)
+            double chartP = Math.min(1.0, a.getOrDefault("open", 0.0) + a.getOrDefault("openBorderline", 0.0));
+            p = chartP + huOpenBoost * (1 - chartP);
+        } else {
+            p = a.getOrDefault("open", 0.0) + borderlineFreq * a.getOrDefault("openBorderline", 0.0);
+        }
         long limpers = acts.stream().filter(x -> x.type() == ActionType.CALL).count();
         if (rng.nextDouble() < p && legal.contains(ActionType.RAISE)) {
             double sizeBb = limpers > 0
                     ? (isIp(myPos) ? 3.5 : 4.5) + limpers   // 림프 상대 공식(책 p3)
                     : charts.openRaiseBB(myPos);
             long to = BotBrain.clampRaise(engine, me, Math.round(sizeBb * bb));
+            String basis = headsUp
+                    ? "헤즈업 보정 빈도 %d%%".formatted(Math.round(p * 100))
+                    : pctText(a, "open", "openBorderline");
             return decision("RAISE", to,
-                    "차트: %s 오픈 레인지(%s %s) → %.1fbb 레이즈".formatted(myPos, hand, pctText(a, "open", "openBorderline"), sizeBb));
+                    "차트: %s 오픈 레인지(%s %s) → %.1fbb 레이즈".formatted(myPos, hand, basis, sizeBb));
         }
         if (legal.contains(ActionType.CHECK)) {
             return decision("CHECK", 0, "차트: %s 오픈 레인지 밖(%s) → 체크".formatted(myPos, hand));
         }
-        return decision("FOLD", 0, "차트: %s 오픈 레인지 밖(%s) → 폴드".formatted(myPos, hand));
+        return decision("FOLD", 0, headsUp
+                ? "차트: 헤즈업 보정 빈도 %d%% 미달(%s) → 폴드".formatted(Math.round(p * 100), hand)
+                : "차트: %s 오픈 레인지 밖(%s) → 폴드".formatted(myPos, hand));
     }
 
     /** 오픈 레이즈 하나를 마주함: 3벳 차트 / BB 방어 차트 / (콜러가 있으면) 스퀴즈 차트. */

@@ -1,5 +1,6 @@
 package com.homepoker.bot;
 
+import com.homepoker.engine.game.HandEngine;
 import com.homepoker.engine.game.Player;
 import com.homepoker.equity.EquityService;
 import com.homepoker.rule.BuyInPolicy;
@@ -109,6 +110,61 @@ class BotServiceTest {
         assertFalse(all.isEmpty(), "핸드 종료 후에는 전부 공개");
         assertTrue(all.stream().allMatch(a -> a.reason() != null && !a.reason().isBlank()));
         assertTrue(all.stream().allMatch(a -> a.handNo() == 1));
+    }
+
+    // 두뇌가 예외를 던져도 테이블이 멈추지 않는다 — 안전 액션(체크/폴드)으로 강제 진행.
+    // (스크린샷 55 동결 버그의 방어: "AI 생각 중" 무한 루프 금지)
+    @Test
+    void failSafeActionWhenBrainThrows() {
+        TableService tableService = newTableService();
+        BotBrain broken = new BotBrain(new EquityService()) {
+            @Override
+            public Decision decide(HandEngine engine, String botId) {
+                throw new IllegalStateException("두뇌 고장(테스트)");
+            }
+        };
+        BotService botService = new BotService(tableService, broken, 0);
+        botService.addBot("t1");
+        botService.addBot("t1");
+        tableService.startHand("t1");
+
+        Table table = tableService.getOrCreate("t1");
+        int guard = 0;
+        while (table.handInProgress()) {
+            if (guard++ > 50) {
+                throw new AssertionError("두뇌 고장에도 핸드는 안전 액션으로 끝까지 진행돼야 한다");
+            }
+            botService.actIfBotTurn("t1");
+        }
+        long total = table.seatedPlayers().stream().mapToLong(Player::stack).sum();
+        assertEquals(2000, total, "칩 보존");
+    }
+
+    // 두뇌가 불법 액션(스택 초과 레이즈 등)을 내놔도 안전 액션으로 대체해 진행한다.
+    @Test
+    void failSafeActionWhenBrainReturnsIllegalAction() {
+        TableService tableService = newTableService();
+        BotBrain badAmount = new BotBrain(new EquityService()) {
+            @Override
+            public Decision decide(HandEngine engine, String botId) {
+                return new Decision("RAISE", 999_999, "불법 금액(테스트)");
+            }
+        };
+        BotService botService = new BotService(tableService, badAmount, 0);
+        botService.addBot("t1");
+        botService.addBot("t1");
+        tableService.startHand("t1");
+
+        Table table = tableService.getOrCreate("t1");
+        int guard = 0;
+        while (table.handInProgress()) {
+            if (guard++ > 50) {
+                throw new AssertionError("불법 액션에도 핸드는 안전 액션으로 끝까지 진행돼야 한다");
+            }
+            botService.actIfBotTurn("t1");
+        }
+        long total = table.seatedPlayers().stream().mapToLong(Player::stack).sum();
+        assertEquals(2000, total, "칩 보존");
     }
 
     // 핸드 진행 중엔 AI 제거 불가, 종료 후엔 가능.

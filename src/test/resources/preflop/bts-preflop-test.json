@@ -1,7 +1,7 @@
 {
  "openRaise": {
   "UTG": {"AA": {"open": 1.0}, "KJo": {"openBorderline": 1.0}},
-  "SB": {"AA": {"open": 1.0}, "54s": {"open": 0.5}}
+  "SB": {"AA": {"open": 1.0}, "54s": {"open": 0.5}, "K8s": {"openBorderline": 1.0}}
  },
  "threeBet": {
   "BTN_vs_UTG": {"AA": {"threeBet": 1.0}}

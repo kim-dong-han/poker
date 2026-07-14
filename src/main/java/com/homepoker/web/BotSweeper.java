@@ -2,6 +2,8 @@ package com.homepoker.web;
 
 import com.homepoker.bot.BotService;
 import com.homepoker.table.TableService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -11,6 +13,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class BotSweeper {
+
+    private static final Logger log = LoggerFactory.getLogger(BotSweeper.class);
 
     private final TableService tableService;
     private final BotService botService;
@@ -29,8 +33,10 @@ public class BotSweeper {
                 if (botService.actIfBotTurn(tableId)) {
                     broadcaster.broadcast(tableId);
                 }
-            } catch (RuntimeException ignore) {
+            } catch (RuntimeException ex) {
                 // 사람 액션·타임아웃과의 경합으로 차례가 이미 지나갔을 수 있다 — 다음 주기에 재시도.
+                // 단, 반복 실패를 조용히 삼키면 "AI 생각 중" 멈춤을 진단할 수 없으므로 로그는 남긴다.
+                log.warn("봇 스위프 실패(table={}): {}", tableId, ex.toString());
             }
         }
     }

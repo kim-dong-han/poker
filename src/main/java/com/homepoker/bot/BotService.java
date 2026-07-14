@@ -1,8 +1,11 @@
 package com.homepoker.bot;
 
+import com.homepoker.engine.game.ActionType;
 import com.homepoker.engine.game.Player;
 import com.homepoker.table.Table;
 import com.homepoker.table.TableService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -25,6 +28,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Service
 public class BotService {
+
+    private static final Logger log = LoggerFactory.getLogger(BotService.class);
 
     public static final String ID_PREFIX = "ai-";
     private static final long DEFAULT_BUY_IN = 1000;
@@ -125,13 +130,29 @@ public class BotService {
             actAt.remove(tableId);
             String street = table.engine().street().name();
             int handNo = table.handsPlayed();
-            BotBrain.Decision d = brain.decide(table.engine(), actor.id());
-            tableService.applyAction(tableId, actor.id(), d.type(), d.amount());
-            Deque<BotAction> log = reasonLog.computeIfAbsent(tableId, k -> new ArrayDeque<>());
-            log.addLast(new BotAction(actor.id(), actor.name(), handNo, street,
+            // 두뇌가 어떤 이유로든 실패해도 테이블이 멈추면 안 된다("생각 중" 무한 루프 방지) —
+            // 안전 액션(체크 가능하면 체크, 아니면 폴드)으로 강제 진행하고 원인은 로그로 남긴다.
+            BotBrain.Decision d;
+            try {
+                d = brain.decide(table.engine(), actor.id());
+            } catch (RuntimeException ex) {
+                d = safeDecision(table, actor.id());
+                log.error("봇 판단 실패 — 안전 액션으로 대체(table={}, bot={}, street={})",
+                        tableId, actor.id(), street, ex);
+            }
+            try {
+                tableService.applyAction(tableId, actor.id(), d.type(), d.amount());
+            } catch (RuntimeException ex) {
+                log.error("봇 액션 거부({} {}) — 안전 액션으로 대체(table={}, bot={}, street={})",
+                        d.type(), d.amount(), tableId, actor.id(), street, ex);
+                d = safeDecision(table, actor.id());
+                tableService.applyAction(tableId, actor.id(), d.type(), d.amount());
+            }
+            Deque<BotAction> actions = reasonLog.computeIfAbsent(tableId, k -> new ArrayDeque<>());
+            actions.addLast(new BotAction(actor.id(), actor.name(), handNo, street,
                     d.type(), d.amount(), d.reason()));
-            while (log.size() > REASON_LOG_LIMIT) {
-                log.removeFirst();
+            while (actions.size() > REASON_LOG_LIMIT) {
+                actions.removeFirst();
             }
             return true;
         }
@@ -150,6 +171,13 @@ public class BotService {
                     .filter(a -> !hideCurrent || a.handNo() != currentHand)
                     .toList();
         }
+    }
+
+    /** 두뇌·액션 실패 시의 최후 수단: 체크 가능하면 체크, 아니면 폴드(항상 합법). */
+    private static BotBrain.Decision safeDecision(Table table, String botId) {
+        boolean canCheck = table.engine().legalActions(botId).contains(ActionType.CHECK);
+        return new BotBrain.Decision(canCheck ? "CHECK" : "FOLD", 0,
+                "판단 오류 → 안전 " + (canCheck ? "체크" : "폴드"));
     }
 
     /** 버스트로 자리가 비워진 봇을 명단에서도 정리(재입장 쿨다운은 사람과 동일하게 적용됨). */

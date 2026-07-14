@@ -24,8 +24,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class PreflopAdvisorTest {
 
+    /** 차트 빈도 자체를 검증하는 테스트용 — 헤즈업 보정을 꺼서(0.0) 결정적으로 만든다. */
     private static final PreflopAdvisor advisor = new PreflopAdvisor(
-            new BtsPreflopCharts("preflop/bts-preflop-test.json"), 0.35);
+            new BtsPreflopCharts("preflop/bts-preflop-test.json"), 0.35, 0.0);
+
+    /** 운영 기본값(헤즈업 차트 밖 오픈 보정 0.5)을 쓰는 조언자. */
+    private static final PreflopAdvisor huAdvisor = new PreflopAdvisor(
+            new BtsPreflopCharts("preflop/bts-preflop-test.json"), 0.35, 0.5);
 
     private static List<Card> cards(String... notations) {
         List<Card> list = new ArrayList<>();
@@ -75,6 +80,47 @@ class PreflopAdvisorTest {
             }
         }
         assertTrue(raises > 90 && raises < 210, "54s 는 약 50% 빈도로 오픈해야 한다: " + raises);
+    }
+
+    // 헤즈업 버튼: 차트 밖 핸드도 hu-open-boost(0.5) 빈도로 오픈한다(6-max SB 차트 49% → HU ~78% 보정)
+    @Test
+    void headsUpBoostOpensChartOutHandsAtBoostFrequency() {
+        int raises = 0;
+        Random rng = new Random(7);
+        for (int trial = 0; trial < 300; trial++) {
+            HandEngine e = headsUp("7h", "Ac", "2c", "Ad"); // bot(SB) = 72o — 차트 밖
+            Optional<BotBrain.Decision> d = huAdvisor.advise(e, "bot", rng);
+            if (d.orElseThrow().type().equals("RAISE")) {
+                raises++;
+            }
+        }
+        assertTrue(raises > 105 && raises < 195, "차트 밖 핸드는 약 50% 빈도로 오픈해야 한다: " + raises);
+    }
+
+    // 헤즈업에선 경계선 핸드가 전량 오픈으로 승격된다(6-max 의 0.35 혼합 대신)
+    @Test
+    void headsUpPromotesBorderlineToAlwaysOpen() {
+        Random rng = new Random(7);
+        for (int trial = 0; trial < 50; trial++) {
+            HandEngine e = headsUp("Kh", "Ac", "8h", "Ad"); // bot(SB) = K8s — 경계선
+            assertEquals("RAISE", huAdvisor.advise(e, "bot", rng).orElseThrow().type(),
+                    "헤즈업 경계선 핸드는 항상 오픈");
+        }
+    }
+
+    // 3인 이상에선 헤즈업 보정이 적용되지 않는다 — 차트 밖 핸드는 그대로 폴드
+    @Test
+    void boostDoesNotApplyBeyondHeadsUp() {
+        Player a = new Player("a", "A", 1000);
+        Player b = new Player("bot", "Bot", 1000);
+        Player c = new Player("c", "C", 1000);
+        // 버튼 0(a) → SB=bot, BB=c. 딜 순서 SB→BB→BTN 교차: bot 이 7h2c(72o)
+        Deck deck = Deck.ofOrder(cards("7h", "Ac", "Kd", "2c", "Ad", "Qd", "Ks", "Qs", "Js", "5d", "9c"));
+        HandEngine e = new HandEngine(List.of(a, b, c), 0, 10, 20, deck);
+        e.start();
+        e.apply(Action.fold("a")); // BTN 폴드 → bot(SB) 차례
+        Optional<BotBrain.Decision> d = huAdvisor.advise(e, "bot", new Random(7));
+        assertEquals("FOLD", d.orElseThrow().type(), "3인 테이블 SB 72o 는 보정 없이 폴드");
     }
 
     @Test

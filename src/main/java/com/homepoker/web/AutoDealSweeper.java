@@ -2,6 +2,8 @@ package com.homepoker.web;
 
 import com.homepoker.table.AutoDealService;
 import com.homepoker.table.TableService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -11,6 +13,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class AutoDealSweeper {
+
+    private static final Logger log = LoggerFactory.getLogger(AutoDealSweeper.class);
 
     private final TableService tableService;
     private final AutoDealService autoDealService;
@@ -30,8 +34,9 @@ public class AutoDealSweeper {
                 if (autoDealService.dealIfDue(tableId)) {
                     broadcaster.broadcast(tableId);
                 }
-            } catch (RuntimeException ignore) {
+            } catch (RuntimeException ex) {
                 // 좌석 이탈 등으로 시작 조건이 그 사이 깨졌을 수 있다 — 다음 주기에 재평가.
+                log.warn("자동 다음 핸드 시작 실패(table={}): {}", tableId, ex.toString());
             }
         }
     }
