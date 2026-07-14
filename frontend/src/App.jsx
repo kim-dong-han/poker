@@ -779,6 +779,65 @@ function HomePage({ onAdd, seatedIds, saved, onForget, onEnter, playerCount }) {
   );
 }
 
+/* ------------------------------------------------------------------ 올인 런아웃 연출 */
+/**
+ * 올인 등으로 남은 보드(플랍·턴·리버)가 한 프레임에 전부 깔리며 끝난 핸드를,
+ * "홀카드 공개 → 플랍 → 턴 → 리버 → 결과" 순서로 시차 공개해 실제 온라인 포커처럼
+ * 긴장감을 만든다. 서버 상태는 그대로 두고 화면 표시만 지연하는 순수 프론트 연출 —
+ * 연출 프레임 동안은 스택·팟 분배·승자 표시를 결과 공개 시점까지 보류한다.
+ * (자동진행이 연출을 자르지 않도록 서버 쪽 쇼다운 추가 대기와 짝을 이룬다.)
+ */
+function useAllInRunout(live) {
+  const [staged, setStaged] = useState(null);
+  const prevRef = useRef(null);
+  const timersRef = useRef([]);
+
+  useEffect(() => {
+    const prev = prevRef.current;
+    prevRef.current = live;
+    if (!live) return;
+    if (live.handInProgress) {
+      // 새 핸드/새 액션이 오면 잔여 연출 정리(자동진행 대기가 연출보다 길어 실제론 드묾)
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+      setStaged(null);
+      return;
+    }
+    if (!prev || !prev.handInProgress) return; // 종료 상태의 재수신 등은 무시
+    const from = prev.board?.length ?? 0;
+    const to = live.board?.length ?? 0;
+    // 쇼다운 공개(가려져 있던 상대 카드가 열림)가 있어야 올인 런아웃 — 폴드 종료는 즉시 표시
+    const revealed = live.seats.some((s) => {
+      const before = prev.seats.find((p) => p.playerId === s.playerId);
+      return s.holeCards && before && !before.holeCards && s.status !== 'FOLDED';
+    });
+    if (!revealed || to < 5 || to - from < 1) return;
+
+    const oldStacks = Object.fromEntries(prev.seats.map((s) => [s.playerId, s.stack]));
+    const frameAt = (boardLen) => ({
+      ...live,
+      handInProgress: true, // 승자·팟 분배·"새 핸드" UI 를 결과 프레임까지 보류
+      payouts: {},
+      board: live.board.slice(0, boardLen),
+      street: boardLen === 0 ? 'PREFLOP' : boardLen === 3 ? 'FLOP' : boardLen === 4 ? 'TURN' : 'RIVER',
+      seats: live.seats.map((s) => ({ ...s, stack: oldStacks[s.playerId] ?? s.stack, lastAction: null })),
+      currentActorId: null,
+      turnSecondsLeft: 0,
+    });
+    const schedule = [[0, frameAt(from)]]; // 즉시: 홀카드 공개(올인 쇼다운), 보드는 아직 그대로
+    let t = 1000;
+    if (from < 3) { schedule.push([t, frameAt(3)]); t += 1300; } // 플랍
+    if (from < 4) { schedule.push([t, frameAt(4)]); t += 1400; } // 턴(뜸 들이기)
+    schedule.push([t, frameAt(5)]); t += 1100;                   // 리버
+    schedule.push([t, null]);                                    // 결과 공개(승자·효과음)
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = schedule.map(([ms, frame]) => setTimeout(() => setStaged(frame), ms));
+  }, [live]);
+
+  useEffect(() => () => timersRef.current.forEach(clearTimeout), []);
+  return staged || live;
+}
+
 /* ------------------------------------------------------------------ 앱 */
 export default function App() {
   const { players, views, errors, connected, addPlayer, removePlayer, startHand, act } = usePokerTable();
@@ -813,7 +872,8 @@ export default function App() {
 
   const seatedIds = players.map((p) => p.id);
   const activeId = picked && seatedIds.includes(picked) ? picked : players[0]?.id;
-  const state = activeId ? views[activeId] : null;
+  const liveState = activeId ? views[activeId] : null;
+  const state = useAllInRunout(liveState); // 올인 런아웃은 카드를 한 장씩 시차 공개
   const error = activeId ? errors[activeId] : null;
   const actorId = state?.handInProgress ? state.currentActorId : null;
   const done = state && !state.handInProgress;
@@ -1033,14 +1093,16 @@ export default function App() {
             actorId === activeId
               ? <ActionBar state={state} mySeat={mySeat}
                   act={(type, amount) => { if (sound) SFX.chip(); act(activeId, type, amount); }} />
-              : <div className="turn-hint">
-                  <TimerBar actorId={actorId} seconds={state.turnSecondsLeft} />
-                  {actorId?.startsWith('ai-')
-                    ? <>🤖 <b>{actorId}</b> (AI)가 생각 중…</>
-                    : <>지금은 <b>{actorId}</b> 차례
-                        {actorId && <button className="ghost sm" onClick={() => setPicked(actorId)}>{actorId}(으)로 전환 →</button>}
-                      </>}
-                </div>
+              : actorId
+                ? <div className="turn-hint">
+                    <TimerBar actorId={actorId} seconds={state.turnSecondsLeft} />
+                    {actorId.startsWith('ai-')
+                      ? <>🤖 <b>{actorId}</b> (AI)가 생각 중…</>
+                      : <>지금은 <b>{actorId}</b> 차례
+                          <button className="ghost sm" onClick={() => setPicked(actorId)}>{actorId}(으)로 전환 →</button>
+                        </>}
+                  </div>
+                : <div className="turn-hint runout">🃏 올인 쇼다운 — 남은 카드를 공개합니다…</div>
           )}
 
           {done && Object.keys(payouts).length > 0 && (

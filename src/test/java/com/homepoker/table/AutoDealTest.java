@@ -42,6 +42,30 @@ class AutoDealTest {
         assertTrue(service.viewFor("t1", "alice").handInProgress());
     }
 
+    /** 체크로만 리버까지 가서 쇼다운으로 끝낸다(올인 런아웃 연출 대기 검증용). */
+    private void finishShowdownHand() {
+        service.join("t1", "alice", "Alice", 1000);
+        service.join("t1", "bob", "Bob", 1000);
+        service.startHand("t1");
+        service.applyAction("t1", service.viewFor("t1", "alice").currentActorId(), "CALL", 0);
+        service.applyAction("t1", service.viewFor("t1", "alice").currentActorId(), "CHECK", 0);
+        for (int street = 0; street < 3; street++) { // 플랍·턴·리버 체크-체크
+            service.applyAction("t1", service.viewFor("t1", "alice").currentActorId(), "CHECK", 0);
+            service.applyAction("t1", service.viewFor("t1", "alice").currentActorId(), "CHECK", 0);
+        }
+    }
+
+    // 쇼다운으로 끝난 핸드는 카드 공개·결과 감상 시간(+3.5초)을 더 기다린 뒤 자동 시작한다.
+    @Test
+    void showdownHandWaitsExtraBeforeAutoDeal() {
+        finishShowdownHand();
+        assertFalse(auto.dealIfDue("t1"), "종료를 처음 본 시점엔 예약만 한다");
+        clock.advance(Duration.ofMillis(7400)); // 기본 4000 + 쇼다운 3500 직전
+        assertFalse(auto.dealIfDue("t1"), "쇼다운은 추가 대기가 끝나기 전 시작하지 않는다");
+        clock.advance(Duration.ofMillis(200));
+        assertTrue(auto.dealIfDue("t1"), "추가 대기가 지나면 자동 시작");
+    }
+
     @Test
     void doesNothingWhileHandInProgress() {
         finishOneHand();

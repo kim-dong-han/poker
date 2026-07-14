@@ -22,17 +22,26 @@ public class AutoDealService {
     private final TableService tableService;
     private final Clock clock;
     private final Duration delay;
+    private final long showdownExtraMillis;
 
     /** 테이블별 자동 진행 여부(기본 켬). */
     private final Map<String, Boolean> enabled = new ConcurrentHashMap<>();
     /** 테이블별 다음 핸드를 시작하기로 예약된 시각(epoch ms) — 결과 감상 지연 구현. */
     private final Map<String, Long> dealAt = new ConcurrentHashMap<>();
 
+    @org.springframework.beans.factory.annotation.Autowired
     public AutoDealService(TableService tableService, Clock clock,
-                           @Value("${poker.autodeal.delay-ms:4000}") long delayMillis) {
+                           @Value("${poker.autodeal.delay-ms:4000}") long delayMillis,
+                           @Value("${poker.autodeal.showdown-extra-ms:3500}") long showdownExtraMillis) {
         this.tableService = tableService;
         this.clock = clock;
         this.delay = Duration.ofMillis(delayMillis);
+        this.showdownExtraMillis = showdownExtraMillis;
+    }
+
+    /** 쇼다운 추가 대기 기본값(3.5초)을 쓰는 편의 생성자(기존 테스트 호환). */
+    public AutoDealService(TableService tableService, Clock clock, long delayMillis) {
+        this(tableService, clock, delayMillis, 3500);
     }
 
     public boolean isEnabled(String tableId) {
@@ -62,7 +71,10 @@ public class AutoDealService {
             long now = clock.millis();
             Long due = dealAt.get(tableId);
             if (due == null) {
-                dealAt.put(tableId, now + delay.toMillis()); // 종료를 처음 본 시점부터 카운트
+                // 종료를 처음 본 시점부터 카운트. 쇼다운(특히 올인 런아웃)은 카드 공개 연출과
+                // 결과를 볼 시간이 더 필요하므로 추가 대기를 얹는다(폴드 종료는 기본 지연만).
+                long extra = table.engine().wentToShowdown() ? showdownExtraMillis : 0;
+                dealAt.put(tableId, now + delay.toMillis() + extra);
                 return false;
             }
             if (now < due) {
