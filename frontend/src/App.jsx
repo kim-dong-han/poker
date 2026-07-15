@@ -960,8 +960,15 @@ export default function App() {
   useEffect(() => {
     if (inProgress || (mySeat && mySeat.stack > 0)) setRebuyPending(false);
   }, [inProgress, mySeat?.stack]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 서버 BuyInPolicy(400~2000)와 동일 범위로 강제 — 범위 밖 값은 보정해 보내 오류 자체를 차단
+  const REBUY_MIN = 400, REBUY_MAX = 2000;
+  const clampRebuy = (v) => Math.min(REBUY_MAX, Math.max(REBUY_MIN, Number(v) || 1000));
+  // 리바인 요청이 서버에서 거부되면(에러 수신) "완료" 대기를 풀어 다시 시도할 수 있게 한다
+  useEffect(() => {
+    if (rebuyPending && error) setRebuyPending(false);
+  }, [error]); // eslint-disable-line react-hooks/exhaustive-deps
   const doRebuy = () => {
-    const amt = Number(rebuyAmt) || 1000;
+    const amt = clampRebuy(rebuyAmt);
     const name = players.find((p) => p.id === activeId)?.name || activeId;
     rebuy(activeId, name, amt);
     setRebuyPending(true);
@@ -1188,9 +1195,11 @@ export default function App() {
                 <div className="rebuy-box">
                   <span className="rebuy-title">💸 칩을 모두 잃었습니다</span>
                   <input type="number" inputMode="numeric" value={rebuyAmt} placeholder="1000 (400~2000)"
-                    onChange={(e) => setRebuyAmt(e.target.value)} />
+                    min={REBUY_MIN} max={REBUY_MAX} step={100}
+                    onChange={(e) => setRebuyAmt(e.target.value.replace(/[^0-9]/g, ''))}
+                    onBlur={() => { if (rebuyAmt !== '') setRebuyAmt(String(clampRebuy(rebuyAmt))); }} />
                   <button className="rebuy-btn" onClick={doRebuy}>
-                    리바인 {(Number(rebuyAmt) || 1000).toLocaleString()}
+                    리바인 {clampRebuy(rebuyAmt).toLocaleString()}
                   </button>
                   <span className="muted sm-note">쿨다운 없이 즉시 재참여</span>
                 </div>
