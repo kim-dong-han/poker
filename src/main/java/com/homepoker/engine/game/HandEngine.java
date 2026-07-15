@@ -486,9 +486,26 @@ public class HandEngine {
         return List.copyOf(pots);
     }
 
-    /** 종료 후 플레이어별 획득 칩(팟 분배 결과). */
+    /** 종료 후 플레이어별 획득 칩(팟 분배 결과). 본인 베팅 반환·언콜드 환급이 포함된 총액이다. */
     public Map<String, Long> payouts() {
         return Collections.unmodifiableMap(payouts);
+    }
+
+    /**
+     * 종료 후 플레이어별 순수익(획득 총액 - 이번 핸드에 넣은 칩).
+     * 언콜드 벳 환급은 넣은 만큼 돌려받은 것이라 0 이 되고, 진 쪽은 음수 —
+     * "실제로 딴/잃은 금액" 표시용. 진행 중이면 빈 맵.
+     */
+    public Map<String, Long> netResults() {
+        if (street != Street.COMPLETE) {
+            return Map.of();
+        }
+        Map<String, Long> net = new LinkedHashMap<>();
+        for (int i = 0; i < n; i++) {
+            Player p = players.get(i);
+            net.put(p.id(), payouts.getOrDefault(p.id(), 0L) - committedTotal[i]);
+        }
+        return Collections.unmodifiableMap(net);
     }
 
     /** 현재 액션할 플레이어(없으면 null). */

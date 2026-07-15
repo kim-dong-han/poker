@@ -110,6 +110,29 @@ class HandEngineTest {
         assertEquals(240L, totalStacks(List.of(a, b, c)));
     }
 
+    // ---- 순수익(netResults): 언콜드 환급은 +가 아니고, 승자는 "실제로 딴 금액"만 ----
+    @Test
+    void netResultsExcludeOwnContributionAndUncalledRefund() {
+        Player a = new Player("A", "Alice", 3000);
+        Player b = new Player("B", "Bob", 1000);
+        // 헤즈업 버튼=0 → A=SB, B=BB. 딜 SB우선: A,B,A,B → A=KsKh, B=AsAh
+        Deck deck = Deck.ofOrder(cards("Ks", "As", "Kh", "Ah", "2c", "7d", "9h", "Jd", "3s"));
+        HandEngine engine = new HandEngine(List.of(a, b), 0, 10, 20, deck);
+        engine.start();
+
+        engine.apply(Action.raiseTo("A", 3000)); // A 올인 3000 (2000 은 언콜드)
+        engine.apply(Action.call("B"));          // B 콜 = 올인 1000
+
+        assertTrue(engine.isComplete());
+        // payouts(총액): B=메인팟 2000, A=언콜드 환급 2000 — 표시용으로 쓰면 "진 A도 +2000"으로 보인다
+        assertEquals(2000L, engine.payouts().get("B"));
+        assertEquals(2000L, engine.payouts().get("A"));
+        // netResults(순수익): 승자 B=+1000(상대가 넣은 만큼), 패자 A=-1000, 환급은 +로 잡히지 않는다
+        assertEquals(1000L, engine.netResults().get("B"));
+        assertEquals(-1000L, engine.netResults().get("A"));
+        assertEquals(4000L, totalStacks(List.of(a, b)));
+    }
+
     // ---- 규칙 검증 ----
     @Test
     void rejectsBelowMinRaise() {

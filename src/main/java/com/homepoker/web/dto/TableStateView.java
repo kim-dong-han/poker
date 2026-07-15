@@ -21,6 +21,8 @@ public record TableStateView(
         long viewerToCall,
         long viewerMinRaiseTo,
         Map<String, Long> payouts,
+        /** 종료 후 플레이어별 순수익(딴/잃은 금액). 환급만 받은 좌석은 0, 진 쪽은 음수. */
+        Map<String, Long> netResults,
         /** 보는 사람 본인의 몬테카를로 이퀴티(0~1). 계산 대상이 아니면 null. 상대 것은 절대 담기지 않는다. */
         Double viewerEquity,
         /** 현재 액션자의 제한시간 남은 초(타임뱅크). 대기자가 없으면 0. */

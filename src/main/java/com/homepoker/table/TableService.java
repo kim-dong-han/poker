@@ -264,7 +264,7 @@ public class TableService {
                             0, null, false, false, null, null))
                     .toList();
             return new TableStateView(tableId, false, "WAITING", List.of(), 0,
-                    List.of(), seats, null, Set.of(), 0, 0, Map.of(), null, 0);
+                    List.of(), seats, null, Set.of(), 0, 0, Map.of(), Map.of(), null, 0);
         }
 
         boolean revealAll = engine.isComplete() && engine.wentToShowdown();
@@ -300,6 +300,7 @@ public class TableService {
                 toCall,
                 engine.minRaiseTo(),
                 engine.payouts(),
+                engine.netResults(),
                 viewerEquity,
                 turnTimer.secondsLeft(tableId));
     }

@@ -832,6 +832,7 @@ function useAllInRunout(live) {
         ...live,
         handInProgress: true, // 승자·팟 분배·"새 핸드" UI 를 결과 프레임까지 보류
         payouts: {},
+        netResults: {},
         board: live.board.slice(0, boardLen),
         street: boardLen === 0 ? 'PREFLOP' : boardLen === 3 ? 'FLOP' : boardLen === 4 ? 'TURN' : 'RIVER',
         // handLabel 은 최종 보드 기준이라 런아웃 중엔 숨김(리버 전에 "플러시" 스포일러 방지)
@@ -893,7 +894,8 @@ export default function App() {
   const error = activeId ? errors[activeId] : null;
   const actorId = state?.handInProgress ? state.currentActorId : null;
   const done = state && !state.handInProgress;
-  const payouts = state?.payouts || {};
+  // 승자 표시·+금액은 순수익 기준 — payouts 는 본인 베팅 반환·언콜드 환급이 섞인 총액이라 쓰지 않는다
+  const nets = state?.netResults || {};
 
   // 헤더에 표시할 블라인드 정보(로비 API에서 1회 로드).
   useEffect(() => {
@@ -932,7 +934,7 @@ export default function App() {
     if (sound && state) {
       if (inProgress && actorId === activeId && prev.actor !== activeId) SFX.myTurn();
       if (boardLen > prev.boardLen && boardLen > 0) SFX.deal();
-      if (done && !prev.done && (payouts[activeId] || 0) > 0) SFX.win();
+      if (done && !prev.done && (nets[activeId] || 0) > 0) SFX.win();
     }
     sfxPrev.current = { actor: actorId, boardLen, done: !!done };
   }, [actorId, boardLen, done]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1137,8 +1139,8 @@ export default function App() {
                     <Seat key={s.playerId} seat={seat} pos={positions[i]}
                       isViewer={s.playerId === activeId} spied={spied}
                       secondsLeft={state.turnSecondsLeft} actorId={actorId}
-                      isWinner={done && payouts[s.playerId] > 0}
-                      winAmount={payouts[s.playerId] || 0} />
+                      isWinner={done && nets[s.playerId] > 0}
+                      winAmount={nets[s.playerId] || 0} />
                   );
                 })}
               </div>
@@ -1172,9 +1174,9 @@ export default function App() {
                 )
           )}
 
-          {done && Object.keys(payouts).length > 0 && (
+          {done && Object.values(nets).some((a) => a > 0) && (
             <div className="result">
-              🏆 {Object.entries(payouts).filter(([, a]) => a > 0)
+              🏆 {Object.entries(nets).filter(([, a]) => a > 0)
                 .map(([id, amt]) => <span key={id} className="win-name">{id} +{amt} </span>)}
             </div>
           )}
