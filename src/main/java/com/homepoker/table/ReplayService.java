@@ -83,7 +83,8 @@ public class ReplayService {
         return new SeatView(
                 p.id(), p.name(), p.stack(), p.status().name(),
                 e.committedThisStreet(p.id()), hole,
-                isButton, p.id().equals(actingId), null);
+                isButton, p.id().equals(actingId), null,
+                HandLabels.of(p.holeCards(), e.board()));
     }
 
     private String describe(Action a) {

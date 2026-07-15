@@ -16,6 +16,8 @@ public record SeatView(
         boolean button,
         boolean currentActor,
         /** 이번 스트리트에 이 플레이어가 한 마지막 액션("CHECK"/"CALL"/"BET 60"...). 없으면 null. */
-        String lastAction
+        String lastAction,
+        /** 홀카드가 공개된 좌석의 족보 라벨("투 페어 A·9" 등). 미공개·프리플랍이면 null. */
+        String handLabel
 ) {
 }

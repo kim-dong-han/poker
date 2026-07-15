@@ -235,6 +235,11 @@ function Seat({ seat, isViewer, pos, secondsLeft, actorId, isWinner, winAmount, 
       )}
       {isWinner && winAmount > 0 && <div className="win-amount">+{winAmount}</div>}
       {spied && <div className="spy-tag" title="전지적 관찰자 시점으로 공개된 카드">👁</div>}
+      {seat.handLabel && seat.holeCards && seat.status !== 'FOLDED' && (
+        <div className={`hand-label ${isWinner ? 'hl-winner' : ''}`} key={seat.handLabel}>
+          {isWinner ? '🏆 ' : ''}{seat.handLabel}
+        </div>
+      )}
       <div className="seat-cards">{cards}</div>
       <div className="seat-plate">
         {seat.button && <span className="dealer" title="딜러 버튼">D</span>}
@@ -564,6 +569,7 @@ function ReplayPanel({ onClose, viewerId }) {
                   className={`replay-seat ${s.status === 'FOLDED' ? 'folded' : ''} ${s.currentActor ? 'acting' : ''}`}>
                   <span className="rname">{s.button && <span className="dealer">D</span>}{s.name}</span>
                   <span className="rcards">{(s.holeCards || []).map((c) => <Card key={c} code={c} />)}</span>
+                  {s.handLabel && s.status !== 'FOLDED' && <span className="r-hand-label">{s.handLabel}</span>}
                   <span className="rstack"><span className="chip-ico sm" />{s.stack}</span>
                   {s.committedThisStreet > 0 && <span className="rbet">벳 {s.committedThisStreet}</span>}
                   {s.status === 'FOLDED' && <span className="fold-tag">FOLD</span>}
@@ -828,7 +834,8 @@ function useAllInRunout(live) {
         payouts: {},
         board: live.board.slice(0, boardLen),
         street: boardLen === 0 ? 'PREFLOP' : boardLen === 3 ? 'FLOP' : boardLen === 4 ? 'TURN' : 'RIVER',
-        seats: live.seats.map((s) => ({ ...s, stack: oldStacks[s.playerId] ?? s.stack, lastAction: null })),
+        // handLabel 은 최종 보드 기준이라 런아웃 중엔 숨김(리버 전에 "플러시" 스포일러 방지)
+        seats: live.seats.map((s) => ({ ...s, stack: oldStacks[s.playerId] ?? s.stack, lastAction: null, handLabel: null })),
         currentActorId: null,
         turnSecondsLeft: 0,
       },

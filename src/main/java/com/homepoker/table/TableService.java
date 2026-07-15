@@ -261,7 +261,7 @@ public class TableService {
             // 아직 핸드 전: 로비 상태
             List<SeatView> seats = table.seatedPlayers().stream()
                     .map(p -> new SeatView(p.id(), p.name(), p.stack(), "WAITING",
-                            0, null, false, false, null))
+                            0, null, false, false, null, null))
                     .toList();
             return new TableStateView(tableId, false, "WAITING", List.of(), 0,
                     List.of(), seats, null, Set.of(), 0, 0, Map.of(), null, 0);
@@ -335,11 +335,13 @@ public class TableService {
         boolean isViewer = p.id().equals(viewerId);
         boolean reveal = godEye || isViewer || (revealAll && p.status() != PlayerStatus.FOLDED);
         List<String> hole = reveal ? p.holeCards().stream().map(Card::toString).toList() : null;
+        // 족보 라벨은 홀카드가 공개된 좌석에만 계산 — 리댁션과 동일한 기준이라 정보 유출 없음
+        String handLabel = reveal ? HandLabels.of(p.holeCards(), engine.board()) : null;
         boolean isButton = engine.players().indexOf(p) == engine.buttonSeat();
         return new SeatView(
                 p.id(), p.name(), p.stack(), p.status().name(),
                 engine.committedThisStreet(p.id()), hole,
-                isButton, p.id().equals(currentActorId), lastAction);
+                isButton, p.id().equals(currentActorId), lastAction, handLabel);
     }
 
     /**
